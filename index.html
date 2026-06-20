@@ -29,6 +29,7 @@
     const Clock = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>;
     const ShieldAlert = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>;
     const CalendarClock = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"></path><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h5"></path><path d="M17.5 17.5 16 16.25V14"></path><path d="M22 16a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z"></path></svg>;
+    const Wallet = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path><path d="M4 6v12c0 1.1.9 2 2 2h14v-8"></path><path d="M18 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"></path></svg>;
 
     function App() {
       const CAPACITY = 39.4;
@@ -42,6 +43,7 @@
       const [acInputMode, setAcInputMode] = useState('kW');
       const [acAmps, setAcAmps] = useState(16);
       const [targetTime, setTargetTime] = useState('07:00');
+      const [pricePerUnit, setPricePerUnit] = useState(2.6); // ตั้งค่าเริ่มต้นเป็นเรท Off-Peak
       
       useEffect(() => {
         if (targetSoC <= currentSoC) {
@@ -55,8 +57,13 @@
           currentStationPower = (acAmps * 230) / 1000;
         }
 
+        const energyNeeded = CAPACITY * ((targetSoC - currentSoC) / 100);
+        const EFFICIENCY = 0.90; 
+        const energyBilled = energyNeeded / EFFICIENCY; // คำนวณเผื่อไฟสูญเสีย 10% เพื่อให้ตรงบิลจริง
+        const cost = energyBilled * pricePerUnit;
+
         if (currentSoC >= targetSoC || currentStationPower <= 0) {
-          return { hours: 0, minutes: 0, error: "ข้อมูลไม่ถูกต้อง", actualPower: 0, bottleneck: null };
+          return { hours: 0, minutes: 0, error: "ข้อมูลไม่ถูกต้อง", actualPower: 0, bottleneck: null, cost: 0 };
         }
 
         let actualPower = 0;
@@ -80,7 +87,6 @@
           }
         }
 
-        const EFFICIENCY = 0.90; 
         const effectivePower = actualPower * EFFICIENCY;
         let timeInHours = 0;
         const TRICKLE_CHARGE_RATE = 0.35; 
@@ -99,8 +105,8 @@
         const hours = Math.floor(totalMinutes / 60);
         const minutes = totalMinutes % 60;
 
-        return { hours, minutes, actualPower, bottleneck, error: null };
-      }, [currentSoC, targetSoC, chargerType, stationPower, acInputMode, acAmps]);
+        return { hours, minutes, actualPower, bottleneck, error: null, cost };
+      }, [currentSoC, targetSoC, chargerType, stationPower, acInputMode, acAmps, pricePerUnit]);
 
       const schedule = useMemo(() => {
         if (calcDetails.error || (calcDetails.hours === 0 && calcDetails.minutes === 0)) return null;
@@ -348,6 +354,56 @@
                   </div>
                 </div>
               </div>
+
+              {/* โมดูลคำนวณค่าไฟ (Smart Cost Estimator) */}
+              <div className="bg-gradient-to-br from-emerald-900/30 to-teal-900/30 p-4 sm:p-5 rounded-2xl border border-emerald-500/20 shadow-lg relative overflow-hidden backdrop-blur-md">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                
+                <div className="flex items-center justify-between mb-3 sm:mb-4 relative z-10">
+                  <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs sm:text-sm tracking-wide uppercase">
+                    <Wallet className="w-4 h-4 sm:w-5 sm:h-5" />
+                    Estimated Cost
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[28px] sm:text-[32px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-300 to-teal-400 font-mono tracking-tight">
+                      ฿{calcDetails.cost ? calcDetails.cost.toFixed(2) : "0.00"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="relative z-10">
+                  <label className="block text-[9px] sm:text-[10px] font-bold text-emerald-200/70 mb-2 uppercase tracking-widest">
+                    เรทราคาค่าไฟ (บาท/หน่วย)
+                  </label>
+                  
+                  <div className="flex gap-2 mb-3">
+                    {[{label: 'Off-Peak', val: 2.6}, {label: 'On-Peak', val: 5.8}, {label: 'ตู้สาธารณะ', val: 7.5}].map((preset) => (
+                      <button
+                        key={preset.label}
+                        onClick={() => setPricePerUnit(preset.val)}
+                        className={`flex-1 py-1.5 sm:py-2 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-all ${
+                          pricePerUnit === preset.val 
+                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.2)]' 
+                            : 'bg-black/20 border-white/5 text-emerald-400/50 hover:bg-white/10 hover:text-emerald-300'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative">
+                    <input 
+                      type="number" step="0.1"
+                      value={pricePerUnit}
+                      onChange={(e) => setPricePerUnit(Number(e.target.value))}
+                      className="w-full bg-black/40 hover:bg-white/5 border border-white/10 text-emerald-300 rounded-xl pl-4 pr-12 py-2 sm:py-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 cursor-pointer shadow-inner font-mono text-sm sm:text-base font-bold transition-all"
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-400/50 font-bold text-[10px] sm:text-xs uppercase tracking-widest pointer-events-none">THB</span>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>
