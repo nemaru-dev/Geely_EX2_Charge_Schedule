@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Geely EX2 Charging Calculator</title>
+  
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & ReactDOM (CDN) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  
+  <!-- Babel for parsing JSX in browser (CDN) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      background-color: #0B0A1A; /* Fallback color */
+      color: white;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- ซ่อนโค้ด JSX จากระบบ Vite ด้วยการใช้ type="text/plain" -->
+  <script id="jsx-source" type="text/plain">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // --- Custom Inline Icons (Replaces lucide-react dependency) ---
+    const Zap = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>;
+    const Clock = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>;
+    const ShieldAlert = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>;
+    const CalendarClock = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5"></path><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h5"></path><path d="M17.5 17.5 16 16.25V14"></path><path d="M22 16a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z"></path></svg>;
+
+    // --- Main App Component ---
+    function App() {
+      // สเปคตายตัวของ Geely EX2 (Thai Version)
+      const CAPACITY = 39.4; // kWh (LFP Battery)
+      const MAX_AC_POWER = 6.6; // kW
+      const MAX_DC_POWER = 70.0; // kW
+
+      const [currentSoC, setCurrentSoC] = useState(20); // %
+      const [targetSoC, setTargetSoC] = useState(100); // %
+      const [chargerType, setChargerType] = useState('DC'); // 'AC' or 'DC'
+      const [stationPower, setStationPower] = useState(120); // kW
+      const [acInputMode, setAcInputMode] = useState('kW'); // 'kW' or 'A'
+      const [acAmps, setAcAmps] = useState(16); // A
+      const [targetTime, setTargetTime] = useState('07:00'); // เวลาเป้าหมาย
+      
+      useEffect(() => {
+        if (targetSoC <= currentSoC) {
+          setTargetSoC(Math.min(currentSoC + 1, 100));
+        }
+      }, [currentSoC, targetSoC]);
+
+      const calcDetails = useMemo(() => {
+        let currentStationPower = stationPower;
+        if (chargerType === 'AC' && acInputMode === 'A') {
+          currentStationPower = (acAmps * 230) / 1000;
+        }
+
+        if (currentSoC >= targetSoC || currentStationPower <= 0) {
+          return { hours: 0, minutes: 0, error: "ข้อมูลไม่ถูกต้อง", actualPower: 0, bottleneck: null };
+        }
+
+        let actualPower = 0;
+        let bottleneck = '';
+
+        if (chargerType === 'AC') {
+          if (currentStationPower > MAX_AC_POWER) {
+            actualPower = MAX_AC_POWER;
+            bottleneck = `รถรับไฟ AC ได้สูงสุด ${MAX_AC_POWER} kW (≈ 28.7A)`;
+          } else {
+            actualPower = currentStationPower;
+            bottleneck = 'จำกัดตามกำลังเครื่องชาร์จ';
+          }
+        } else {
+          if (currentStationPower > MAX_DC_POWER) {
+            actualPower = MAX_DC_POWER;
+            bottleneck = `รถรับไฟ DC ได้สูงสุด ${MAX_DC_POWER} kW`;
+          } else {
+            actualPower = currentStationPower;
+            bottleneck = 'จำกัดตามกำลังตู้ชาร์จ';
+          }
+        }
+
+        const EFFICIENCY = 0.90; 
+        const effectivePower = actualPower * EFFICIENCY;
+        let timeInHours = 0;
+        const TRICKLE_CHARGE_RATE = 0.35; 
+
+        if (currentSoC < 80 && targetSoC <= 80) {
+          timeInHours = (CAPACITY * ((targetSoC - currentSoC) / 100)) / effectivePower;
+        } else if (currentSoC >= 80) {
+          timeInHours = (CAPACITY * ((targetSoC - currentSoC) / 100)) / (effectivePower * TRICKLE_CHARGE_RATE);
+        } else {
+          const timeFast = (CAPACITY * ((80 - currentSoC) / 100)) / effectivePower;
+          const timeSlow = (CAPACITY * ((targetSoC - 80) / 100)) / (effectivePower * TRICKLE_CHARGE_RATE);
+          timeInHours = timeFast + timeSlow;
+        }
+
+        const totalMinutes = Math.round(timeInHours * 60);
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+
+        return { hours, minutes, actualPower, bottleneck, error: null };
+      }, [currentSoC, targetSoC, chargerType, stationPower, acInputMode, acAmps]);
+
+      const schedule = useMemo(() => {
+        if (calcDetails.error || (calcDetails.hours === 0 && calcDetails.minutes === 0)) return null;
+        const [tHours, tMinutes] = targetTime.split(':').map(Number);
+        const totalChargeMinutes = (calcDetails.hours * 60) + calcDetails.minutes;
+        let startMinutesTotal = (tHours * 60 + tMinutes) - totalChargeMinutes;
+        let dayOffset = '';
+
+        if (startMinutesTotal < 0) {
+          startMinutesTotal = (24 * 60) + (startMinutesTotal % (24 * 60));
+          dayOffset = '(คืนก่อนหน้า)';
+        }
+
+        const sHours = Math.floor(startMinutesTotal / 60) % 24;
+        const sMinutes = startMinutesTotal % 60;
+
+        return {
+          startTime: `${String(sHours).padStart(2, '0')}:${String(sMinutes).padStart(2, '0')}`,
+          dayOffset
+        };
+      }, [calcDetails, targetTime]);
+
+      const canvasRef = useRef(null);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        
+        const cssWidth = 320;
+        const cssHeight = 160;
+        const dpr = window.devicePixelRatio || 1;
+        
+        canvas.width = cssWidth * dpr;
+        canvas.height = cssHeight * dpr;
+        canvas.style.width = `${cssWidth}px`;
+        canvas.style.height = `${cssHeight}px`;
+        ctx.scale(dpr, dpr);
+
+        const centerX = cssWidth / 2;
+        const centerY = cssHeight - 10;
+        const radius = cssWidth / 2 - 30;
+
+        ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+        // Dynamic Gradient for Canvas
+        const mainGradient = ctx.createLinearGradient(0, centerY, cssWidth, centerY);
+        mainGradient.addColorStop(0, '#06b6d4'); // Cyan
+        mainGradient.addColorStop(0.5, '#8b5cf6'); // Violet
+        mainGradient.addColorStop(1, '#ec4899'); // Pink
+
+        // 1. Background Track
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, Math.PI, 0);
+        ctx.lineWidth = 18;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)'; 
+        ctx.stroke();
+
+        // 2. Fast Charge Zone Background (Trace)
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, Math.PI, Math.PI + (Math.PI * 0.8));
+        ctx.lineWidth = 18;
+        ctx.lineCap = 'butt';
+        ctx.strokeStyle = 'rgba(236, 72, 153, 0.08)'; 
+        ctx.stroke();
+
+        // 3. Current SoC Fill
+        const currentAngle = Math.PI + (Math.PI * (currentSoC / 100));
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, Math.PI, currentAngle);
+        ctx.lineWidth = 18;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = mainGradient;
+        ctx.shadowColor = '#ec4899';
+        ctx.shadowBlur = 12; 
+        ctx.stroke();
+        ctx.shadowBlur = 0; 
+
+        // 4. Target SoC Forecast
+        if (targetSoC > currentSoC) {
+          const targetAngle = Math.PI + (Math.PI * (targetSoC / 100));
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius, currentAngle, targetAngle);
+          ctx.lineWidth = 18;
+          ctx.lineCap = targetSoC >= 100 ? 'round' : 'butt';
+          ctx.setLineDash([4, 4]);
+          
+          const forecastGradient = ctx.createLinearGradient(0, 0, cssWidth, 0);
+          forecastGradient.addColorStop(0, '#a855f7'); 
+          forecastGradient.addColorStop(1, targetSoC > 80 ? '#fb923c' : '#ec4899'); 
+          
+          ctx.strokeStyle = forecastGradient;
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        // 5. The 80% Marker
+        const markerAngle = Math.PI + (Math.PI * 0.8);
+        const markerX = centerX + Math.cos(markerAngle) * (radius - 14);
+        const markerY = centerY + Math.sin(markerAngle) * (radius - 14);
+        const markerOuterX = centerX + Math.cos(markerAngle) * (radius + 14);
+        const markerOuterY = centerY + Math.sin(markerAngle) * (radius + 14);
+        
+        ctx.beginPath();
+        ctx.moveTo(markerX, markerY);
+        ctx.lineTo(markerOuterX, markerOuterY);
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#f43f5e'; 
+        ctx.shadowColor = '#f43f5e';
+        ctx.shadowBlur = 8;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = '#fca5a5';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('BMS LIMIT', markerOuterX + 25, markerOuterY - 5);
+
+      }, [currentSoC, targetSoC]);
+
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4 font-sans bg-[#0B0A1A] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-fuchsia-900/40 via-[#0B0A1A] to-cyan-900/30">
+          
+          <div className="bg-[#120F24]/60 backdrop-blur-3xl w-full max-w-md rounded-[32px] shadow-[0_0_80px_-20px_rgba(236,72,153,0.3)] border border-white/10 overflow-hidden relative">
+            
+            <div className="absolute top-0 right-0 w-64 h-64 bg-fuchsia-500/10 rounded-full blur-[80px] pointer-events-none"></div>
+            <div className="absolute bottom-0 left-0 w-64 h-64 bg-cyan-500/10 rounded-full blur-[80px] pointer-events-none"></div>
+
+            <div className="p-6 relative overflow-hidden border-b border-white/5 z-10">
+              <h1 className="text-3xl font-black flex items-center gap-2">
+                <Zap className="w-7 h-7 text-fuchsia-400 drop-shadow-[0_0_12px_rgba(236,72,153,0.8)]" />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-fuchsia-400 to-pink-500">
+                  Geely EX2
+                </span>
+              </h1>
+              <p className="text-purple-200/70 text-sm mt-1 font-medium tracking-wide uppercase">HyperCharge Tracker</p>
+            </div>
+
+            <div className="px-6 pb-6 pt-4 flex flex-col items-center justify-center relative z-10">
+              
+              <div className="relative w-full flex justify-center mb-6">
+                <canvas ref={canvasRef} className="max-w-full drop-shadow-2xl z-10" />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-center z-10 flex flex-col items-center">
+                  <span className="text-[42px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-pink-200 drop-shadow-md">{targetSoC}%</span>
+                  <span className="block text-[10px] font-bold text-fuchsia-400/80 tracking-[0.2em] uppercase mt-2 bg-fuchsia-500/10 px-3 py-1 rounded-full border border-fuchsia-500/20">Target</span>
+                </div>
+              </div>
+
+              <div className="text-purple-300/80 font-semibold mb-1 flex items-center gap-2 text-[11px] uppercase tracking-widest bg-white/5 px-4 py-1.5 rounded-full border border-white/5">
+                <Clock className="w-3.5 h-3.5 text-cyan-400" />
+                Est. Charge Time
+              </div>
+              
+              {calcDetails.error ? (
+                <div className="text-2xl font-bold text-rose-400 mt-2">{calcDetails.error}</div>
+              ) : (
+                <div className="text-[56px] leading-none font-black text-white tracking-tight drop-shadow-lg mt-2 flex items-baseline">
+                  {calcDetails.hours > 0 && (
+                    <React.Fragment>
+                      <span className="text-transparent bg-clip-text bg-gradient-to-br from-white to-fuchsia-100">{calcDetails.hours}</span>
+                      <span className="text-xl text-fuchsia-300/70 font-medium ml-1 mr-4 tracking-normal">ชม.</span>
+                    </React.Fragment>
+                  )}
+                  <span className="text-transparent bg-clip-text bg-gradient-to-br from-white to-fuchsia-100">{calcDetails.minutes}</span>
+                  <span className="text-xl text-fuchsia-300/70 font-medium ml-1 tracking-normal">นาที</span>
+                </div>
+              )}
+
+              <div className="mt-6 w-full bg-gradient-to-r from-fuchsia-900/20 to-purple-900/20 backdrop-blur-xl rounded-2xl p-4 border border-fuchsia-500/20 flex items-center gap-4 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
+                <div className="p-2.5 bg-fuchsia-500/20 rounded-xl border border-fuchsia-500/30">
+                  <Zap className="w-5 h-5 text-fuchsia-300 flex-shrink-0" />
+                </div>
+                <div className="text-sm flex-1">
+                  <div className="text-purple-200">กำลังไฟเข้า: <span className="font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400 text-lg ml-1">{calcDetails.actualPower.toFixed(1)} kW</span></div>
+                  <div className="text-fuchsia-400/80 text-[11px] font-medium mt-0.5 uppercase tracking-wide">{calcDetails.bottleneck}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 bg-black/20 space-y-7 border-t border-white/5 relative z-10">
+              
+              <div className="space-y-6">
+                <div>
+                  <label className="flex justify-between text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
+                    <span>แบตเตอรี่ปัจจุบัน</span>
+                    <span className="text-cyan-400 font-black bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">{currentSoC}%</span>
+                  </label>
+                  <input 
+                    type="range" min="0" max="99" step="1"
+                    value={currentSoC}
+                    onChange={(e) => setCurrentSoC(Number(e.target.value))}
+                    className="w-full accent-cyan-400 h-2 bg-white/5 rounded-full appearance-none cursor-pointer"
+                  />
+                </div>
+                
+                <div>
+                  <label className="flex justify-between text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
+                    <span>เป้าหมายการชาร์จ</span>
+                    <span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2 py-0.5 rounded border border-fuchsia-500/20">{targetSoC}%</span>
+                  </label>
+                  <input 
+                    type="range" min={Math.min(currentSoC + 1, 100)} max="100" step="1"
+                    value={targetSoC}
+                    onChange={(e) => setTargetSoC(Number(e.target.value))}
+                    className="w-full accent-fuchsia-500 h-2 bg-white/5 rounded-full appearance-none cursor-pointer"
+                  />
+                  {targetSoC > 80 ? (
+                     <p className="text-[11px] text-slate-400 mt-3 flex items-start gap-2 bg-rose-500/5 p-2.5 rounded-lg border border-rose-500/10">
+                       <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400" />
+                       แบตเตอรี่ LFP ของ EX2 ชาร์จ 100% ได้ แต่ระบบ BMS จะลดความเร็วช่วง 80-100% ลงอย่างมากเพื่อถนอมเซลล์
+                     </p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
+                  ประเภทการชาร์จ
+                </label>
+                <div className="flex bg-black/40 rounded-xl p-1 mb-4 border border-white/5 shadow-inner">
+                  <button
+                    onClick={() => setChargerType('AC')}
+                    className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${
+                      chargerType === 'AC' 
+                      ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-[0_4px_20px_rgba(192,38,211,0.4)] border-transparent' 
+                      : 'text-purple-400/60 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    AC (ธรรมดา)
+                  </button>
+                  <button
+                    onClick={() => setChargerType('DC')}
+                    className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${
+                      chargerType === 'DC' 
+                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-[0_4px_20px_rgba(8,145,178,0.4)] border-transparent' 
+                      : 'text-purple-400/60 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    DC (ชาร์จเร็ว)
+                  </button>
+                </div>
+
+                {chargerType === 'AC' && (
+                  <div className="flex gap-2 mb-4">
+                    <button
+                      onClick={() => setAcInputMode('kW')}
+                      className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${
+                        acInputMode === 'kW' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'
+                      }`}
+                    >
+                      ตู้ชาร์จ (kW)
+                    </button>
+                    <button
+                      onClick={() => setAcInputMode('A')}
+                      className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${
+                        acInputMode === 'A' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'
+                      }`}
+                    >
+                      สายพกพา (Amps)
+                    </button>
+                  </div>
+                )}
+
+                {chargerType === 'AC' && acInputMode === 'A' ? (
+                  <div className="space-y-4">
+                    <div className="flex gap-2">
+                      {[8, 10, 13, 16, 32].map((preset) => (
+                        <button
+                          key={preset}
+                          onClick={() => setAcAmps(preset)}
+                          className={`flex-1 py-2.5 text-xs font-black rounded-lg border transition-all ${
+                            acAmps === preset 
+                              ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-300 shadow-[0_0_15px_rgba(217,70,239,0.2)]' 
+                              : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          {preset}A
+                        </button>
+                      ))}
+                    </div>
+
+                    <div>
+                      <input 
+                        type="range" min="6" max="32" step="1"
+                        value={acAmps}
+                        onChange={(e) => setAcAmps(Number(e.target.value))}
+                        className="w-full accent-fuchsia-500 h-2 bg-white/5 rounded-full appearance-none cursor-pointer mt-2"
+                      />
+                      <div className="flex justify-between text-[10px] text-purple-400/50 mt-2 font-bold px-1 uppercase">
+                        <span>6A Min</span>
+                        <span className="text-fuchsia-400">{acAmps} A</span>
+                        <span>32A Max</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="grid grid-cols-4 gap-2 mb-3">
+                      {(chargerType === 'AC' ? [3.3, 7, 11, 22] : [50, 70, 120, 160]).map((preset) => (
+                        <button
+                          key={preset}
+                          onClick={() => setStationPower(preset)}
+                          className={`py-3 text-sm font-black rounded-lg border transition-all ${
+                            stationPower === preset 
+                              ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]' 
+                              : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                    
+                    <div className="relative mt-3">
+                      <input
+                        type="number"
+                        min="1"
+                        max="350"
+                        value={stationPower}
+                        onChange={(e) => setStationPower(Number(e.target.value))}
+                        className="w-full bg-black/40 border border-white/10 text-white font-bold rounded-xl px-4 py-4 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 shadow-inner transition-colors"
+                        placeholder="ระบุกำลังไฟตู้"
+                      />
+                      <span className="absolute right-5 top-4 text-purple-400/60 font-bold uppercase tracking-widest">kW</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-gradient-to-br from-fuchsia-900/30 to-violet-900/30 p-5 rounded-2xl border border-fuchsia-500/20 shadow-lg relative overflow-hidden backdrop-blur-md">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
+                
+                <div className="flex items-center gap-2 text-pink-300 font-bold mb-4 relative z-10 text-sm tracking-wide uppercase">
+                  <CalendarClock className="w-5 h-5" />
+                  Smart Schedule
+                </div>
+                
+                <div className="flex items-center justify-between relative z-10">
+                  <div className="w-[45%]">
+                    <label className="block text-[10px] font-bold text-fuchsia-200/70 mb-2 uppercase tracking-widest">
+                      รถพร้อมใช้เวลา <span className="text-pink-400 ml-0.5">({targetSoC}%)</span>
+                    </label>
+                    <div className="relative group">
+                      <input 
+                        type="time" 
+                        value={targetTime}
+                        onChange={(e) => setTargetTime(e.target.value)}
+                        className="w-full bg-black/40 hover:bg-white/5 border border-white/10 text-white rounded-xl pl-10 pr-2 py-3 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 cursor-pointer shadow-inner font-mono text-base font-bold transition-all"
+                      />
+                      <Clock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-pink-400 pointer-events-none group-hover:scale-110 group-hover:text-pink-300 transition-all" />
+                    </div>
+                  </div>
+                  
+                  <div className="w-[10%] flex justify-center text-purple-400/50">
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
+
+                  <div className="w-[45%] text-right flex flex-col justify-center">
+                    <label className="block text-[10px] font-bold text-cyan-200/70 mb-1 uppercase tracking-widest">
+                      ตั้งเวลาเริ่มชาร์จ <span className="text-purple-400/70 font-medium tracking-normal text-[9px]">(ในแอพ)</span>
+                    </label>
+                    {schedule ? (
+                      <div>
+                        <div className="text-[28px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400 font-mono tracking-tight">{schedule.startTime}</div>
+                        {schedule.dayOffset && <div className="text-[10px] text-cyan-200 font-bold mt-1.5 bg-cyan-500/20 inline-block px-2 py-0.5 rounded border border-cyan-500/30 uppercase tracking-widest">{schedule.dayOffset}</div>}
+                      </div>
+                    ) : (
+                      <div className="text-purple-400/50 text-sm mt-2 font-medium">-</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+
+  <!-- สั่งประมวลผลโค้ดที่ถูกซ่อนไว้แบบ Manual พร้อมแก้ปัญหา jsx-runtime -->
+  <script type="module">
+    try {
+      const source = document.getElementById('jsx-source').textContent;
+      
+      // บังคับให้ Babel ใช้ 'classic' runtime แทนการ import 'react/jsx-runtime'
+      const compiled = Babel.transform(source, { 
+        presets: [
+          ['react', { "runtime": "classic" }] 
+        ] 
+      }).code;
+      
+      const script = document.createElement('script');
+      script.type = 'module'; 
+      script.text = compiled;
+      document.body.appendChild(script);
+    } catch (err) {
+      console.error("Babel compilation error:", err);
+    }
+  </script>
+</body>
+</html>
