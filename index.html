@@ -37,13 +37,13 @@
       const MAX_DC_POWER = 70.0;
 
       const [currentSoC, setCurrentSoC] = useState(20);
-      const [targetSoC, setTargetSoC] = useState(80); // เปลี่ยน Default เป็น 80% ตามมาตรฐานสากล
-      const [chargerType, setChargerType] = useState('AC'); // เปลี่ยน Default เป็น AC
+      const [targetSoC, setTargetSoC] = useState(80);
+      const [chargerType, setChargerType] = useState('AC');
       const [stationPower, setStationPower] = useState(120);
-      const [acInputMode, setAcInputMode] = useState('A'); // เปลี่ยน Default เป็นสายพกพา (Amps)
-      const [acAmps, setAcAmps] = useState(10); // เปลี่ยน Default เป็น 10A
-      const [targetTime, setTargetTime] = useState('07:00');
-      const [pricePerUnit, setPricePerUnit] = useState(4.5); // ตั้งค่าเริ่มต้นเป็นเรทไฟบ้านปกติ
+      const [acInputMode, setAcInputMode] = useState('A');
+      const [acAmps, setAcAmps] = useState(10);
+      const [targetTime, setTargetTime] = useState('06:30');
+      const [pricePerUnit, setPricePerUnit] = useState(4.5);
       
       useEffect(() => {
         if (targetSoC <= currentSoC) {
@@ -103,7 +103,6 @@
         const hours = Math.floor(totalMinutes / 60);
         const minutes = totalMinutes % 60;
 
-        // คำนวณค่าไฟใหม่โดยคิดรวมระยะเวลาชาร์จ (Vampire Drain 300W/ชม.)
         const VAMPIRE_DRAIN_KW = 0.3; 
         const totalEnergyBilled = (energyNeeded / EFFICIENCY) + (timeInHours * VAMPIRE_DRAIN_KW); 
         const parsedPrice = Number(pricePerUnit) || 0;
@@ -144,8 +143,7 @@
         const dpr = window.devicePixelRatio || 1;
         canvas.width = cssWidth * dpr;
         canvas.height = cssHeight * dpr;
-        canvas.style.width = `${cssWidth}px`;
-        canvas.style.height = `${cssHeight}px`;
+        // เอาคำสั่งบังคับขนาดด้วย px ออก เพื่อปล่อยให้ CSS ยืดหดตามสัดส่วน
         ctx.scale(dpr, dpr);
         const centerX = cssWidth / 2;
         const centerY = cssHeight - 10;
@@ -216,6 +214,8 @@
           <div className="bg-[#120F24]/60 backdrop-blur-3xl w-full max-w-md rounded-[32px] shadow-[0_0_80px_-20px_rgba(236,72,153,0.3)] border border-white/10 overflow-hidden relative">
             <div className="absolute top-0 right-0 w-64 h-64 bg-fuchsia-500/10 rounded-full blur-[80px] pointer-events-none"></div>
             <div className="absolute bottom-0 left-0 w-64 h-64 bg-cyan-500/10 rounded-full blur-[80px] pointer-events-none"></div>
+            
+            {/* Header */}
             <div className="p-6 relative overflow-hidden border-b border-white/5 z-10">
               <h1 className="text-3xl font-black flex items-center gap-2">
                 <Zap className="w-7 h-7 text-fuchsia-400 drop-shadow-[0_0_12px_rgba(236,72,153,0.8)]" />
@@ -223,18 +223,23 @@
               </h1>
               <p className="text-purple-200/70 text-sm mt-1 font-medium tracking-wide uppercase">HyperCharge Tracker</p>
             </div>
+
+            {/* Top Info Section */}
             <div className="px-6 pb-6 pt-4 flex flex-col items-center justify-center relative z-10">
               <div className="relative w-full flex justify-center mb-6">
-                <canvas ref={canvasRef} className="max-w-full drop-shadow-2xl z-10" />
+                {/* ล็อคสัดส่วน 2/1 เสมอด้วย CSS ทำให้ครึ่งวงกลมไม่บี้แบนบนมือถือ */}
+                <canvas ref={canvasRef} className="w-full max-w-[320px] aspect-[2/1] drop-shadow-2xl z-10" />
                 <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-center z-10 flex flex-col items-center">
                   <span className="text-[42px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-pink-200 drop-shadow-md">{targetSoC}%</span>
                   <span className="block text-[10px] font-bold text-fuchsia-400/80 tracking-[0.2em] uppercase mt-2 bg-fuchsia-500/10 px-3 py-1 rounded-full border border-fuchsia-500/20">Target</span>
                 </div>
               </div>
+              
               <div className="text-purple-300/80 font-semibold mb-1 flex items-center gap-2 text-[11px] uppercase tracking-widest bg-white/5 px-4 py-1.5 rounded-full border border-white/5">
                 <Clock className="w-3.5 h-3.5 text-cyan-400" />
                 Est. Charge Time
               </div>
+              
               {calcDetails.error ? (
                 <div className="text-2xl font-bold text-rose-400 mt-2">{calcDetails.error}</div>
               ) : (
@@ -249,6 +254,7 @@
                   <span className="text-xl text-fuchsia-300/70 font-medium ml-1 tracking-normal">นาที</span>
                 </div>
               )}
+              
               <div className="mt-6 w-full bg-gradient-to-r from-fuchsia-900/20 to-purple-900/20 backdrop-blur-xl rounded-2xl p-4 border border-fuchsia-500/20 flex items-center gap-4 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
                 <div className="p-2.5 bg-fuchsia-500/20 rounded-xl border border-fuchsia-500/30"><Zap className="w-5 h-5 text-fuchsia-300 flex-shrink-0" /></div>
                 <div className="text-sm flex-1">
@@ -257,7 +263,10 @@
                 </div>
               </div>
             </div>
+
+            {/* Bottom Controls Section */}
             <div className="p-6 bg-black/20 space-y-7 border-t border-white/5 relative z-10">
+              
               <div className="space-y-6">
                 <div>
                   <label className="flex justify-between text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
@@ -280,18 +289,21 @@
                   ) : null}
                 </div>
               </div>
+
               <div>
                 <label className="block text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">ประเภทการชาร์จ</label>
                 <div className="flex bg-black/40 rounded-xl p-1 mb-4 border border-white/5 shadow-inner">
                   <button onClick={() => setChargerType('AC')} className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${chargerType === 'AC' ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-[0_4px_20px_rgba(192,38,211,0.4)] border-transparent' : 'text-purple-400/60 hover:text-white hover:bg-white/5'}`}>AC (ธรรมดา)</button>
                   <button onClick={() => setChargerType('DC')} className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${chargerType === 'DC' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-[0_4px_20px_rgba(8,145,178,0.4)] border-transparent' : 'text-purple-400/60 hover:text-white hover:bg-white/5'}`}>DC (ชาร์จเร็ว)</button>
                 </div>
+                
                 {chargerType === 'AC' && (
                   <div className="flex gap-2 mb-4">
                     <button onClick={() => setAcInputMode('kW')} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${acInputMode === 'kW' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'}`}>ตู้ชาร์จ (kW)</button>
                     <button onClick={() => setAcInputMode('A')} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${acInputMode === 'A' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'}`}>สายพกพา (Amps)</button>
                   </div>
                 )}
+                
                 {chargerType === 'AC' && acInputMode === 'A' ? (
                   <div className="space-y-4">
                     <div className="flex gap-2">
@@ -322,34 +334,45 @@
                   </div>
                 )}
               </div>
+
+              {/* Smart Schedule */}
               <div className="bg-gradient-to-br from-fuchsia-900/30 to-violet-900/30 p-4 sm:p-5 rounded-2xl border border-fuchsia-500/20 shadow-lg relative overflow-hidden backdrop-blur-md">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
+                
                 <div className="flex items-center gap-2 text-pink-300 font-bold mb-3 sm:mb-4 relative z-10 text-xs sm:text-sm tracking-wide uppercase">
                   <CalendarClock className="w-4 h-4 sm:w-5 sm:h-5" />
                   Smart Schedule
                 </div>
-                <div className="grid grid-cols-[1.2fr_auto_1fr] gap-2 sm:gap-4 items-center relative z-10">
+                
+                <div className="grid grid-cols-[1.3fr_auto_1fr] gap-2 sm:gap-4 items-center relative z-10">
                   <div className="min-w-0">
                     <label className="block text-[9px] sm:text-[10px] font-bold text-fuchsia-200/70 mb-1.5 sm:mb-2 uppercase tracking-widest truncate">
-                      พร้อมใช้เวลา <span className="text-pink-400 ml-0.5">({targetSoC}%)</span>
+                      รถพร้อมใช้เวลา <span className="text-pink-400 ml-0.5">({targetSoC}%)</span>
                     </label>
                     <div className="relative group">
-                      <input type="time" value={targetTime} onChange={(e) => setTargetTime(e.target.value)} className="w-full bg-black/40 hover:bg-white/5 border border-white/10 text-white rounded-xl pl-8 pr-1 py-2 sm:py-3 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 cursor-pointer shadow-inner font-mono text-sm sm:text-base font-bold transition-all" />
-                      <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-pink-400 pointer-events-none group-hover:scale-110 group-hover:text-pink-300 transition-all" />
+                      <input 
+                        type="time" 
+                        value={targetTime}
+                        onChange={(e) => setTargetTime(e.target.value)}
+                        className="w-full bg-black/40 hover:bg-white/5 border border-white/10 text-white rounded-xl pl-7 sm:pl-10 pr-0.5 sm:pr-2 py-2 sm:py-3 focus:outline-none focus:border-pink-500 focus:ring-1 focus:ring-pink-500 cursor-pointer shadow-inner font-mono text-[13px] sm:text-base font-bold transition-all"
+                      />
+                      <Clock className="absolute left-2 sm:left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 text-pink-400 pointer-events-none group-hover:scale-110 group-hover:text-pink-300 transition-all" />
                     </div>
                   </div>
+                  
                   <div className="flex justify-center text-purple-400/50 px-1 mt-4 sm:mt-0">
                     <svg className="w-4 h-4 sm:w-6 sm:h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </div>
+
                   <div className="text-right min-w-0 flex flex-col justify-center">
                     <label className="block text-[9px] sm:text-[10px] font-bold text-cyan-200/70 mb-1 uppercase tracking-widest truncate">
-                      ตั้งชาร์จตอน <span className="text-purple-400/70 font-medium tracking-normal text-[8px] sm:text-[9px]">(แอพ)</span>
+                      ตั้งเวลาเริ่มชาร์จ <span className="text-purple-400/70 font-medium tracking-normal text-[8px] sm:text-[9px]">(ในแอพ)</span>
                     </label>
                     {schedule ? (
                       <div>
-                        <div className="text-[24px] sm:text-[28px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400 font-mono tracking-tight truncate">{schedule.startTime}</div>
+                        <div className="text-[20px] sm:text-[28px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400 font-mono tracking-tight truncate">{schedule.startTime}</div>
                         {schedule.dayOffset && <div className="text-[8px] sm:text-[10px] text-cyan-200 font-bold mt-1 sm:mt-1.5 bg-cyan-500/20 inline-block px-1.5 py-0.5 rounded border border-cyan-500/30 uppercase tracking-widest truncate">{schedule.dayOffset}</div>}
                       </div>
                     ) : (
@@ -359,51 +382,62 @@
                 </div>
               </div>
 
-              {/* โมดูลคำนวณค่าไฟ (Smart Cost Estimator) */}
-              <div className="bg-gradient-to-br from-emerald-900/30 to-teal-900/30 p-4 sm:p-5 rounded-2xl border border-emerald-500/20 shadow-lg relative overflow-hidden backdrop-blur-md">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
-                
-                <div className="flex items-center justify-between mb-3 sm:mb-4 relative z-10">
-                  <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs sm:text-sm tracking-wide uppercase">
-                    <Wallet className="w-4 h-4 sm:w-5 sm:h-5" />
-                    Estimated Cost
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[28px] sm:text-[32px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-300 to-teal-400 font-mono tracking-tight">
-                      ฿{calcDetails.cost ? calcDetails.cost.toFixed(2) : "0.00"}
-                    </span>
-                  </div>
-                </div>
+              {/* โมดูลคำนวณค่าไฟ (Premium Smart Cost Estimator) */}
+              <div className="relative group mt-2">
+                {/* Ambient Glow Behind Card */}
+                <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-[24px] blur-[14px] opacity-20 group-hover:opacity-30 transition duration-700"></div>
 
-                <div className="relative z-10">
-                  <label className="block text-[9px] sm:text-[10px] font-bold text-emerald-200/70 mb-2 uppercase tracking-widest">
-                    เรทราคาค่าไฟ (บาท/หน่วย)
-                  </label>
-                  
-                  <div className="grid grid-cols-4 gap-1 sm:gap-2 mb-3">
-                    {[{label: 'ไฟบ้าน', val: 4.5}, {label: 'Off-Peak', val: 2.6}, {label: 'On-Peak', val: 5.8}, {label: 'สาธารณะ', val: 7.5}].map((preset) => (
-                      <button
-                        key={preset.label}
-                        onClick={() => setPricePerUnit(preset.val)}
-                        className={`py-1.5 sm:py-2 text-[8px] sm:text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-all ${
-                          pricePerUnit === preset.val 
-                            ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.2)]' 
-                            : 'bg-black/20 border-white/5 text-emerald-400/50 hover:bg-white/10 hover:text-emerald-300'
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
+                <div className="bg-[#0f172a]/90 backdrop-blur-xl p-5 sm:p-6 rounded-[24px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative overflow-hidden">
+                  {/* Glassmorphism Highlight */}
+                  <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-emerald-400/40 to-transparent"></div>
+                  <div className="absolute bottom-0 right-0 w-48 h-48 bg-teal-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+                  <div className="flex items-center justify-between mb-5 sm:mb-6 relative z-10">
+                    <div className="flex items-center gap-2.5 text-emerald-400 font-bold text-xs sm:text-sm tracking-widest uppercase drop-shadow-md">
+                      <div className="p-1.5 bg-emerald-500/10 rounded-lg border border-emerald-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
+                        <Wallet className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-300" />
+                      </div>
+                      Estimated Cost
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[36px] sm:text-[44px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-br from-emerald-100 via-teal-300 to-emerald-500 font-mono tracking-tight drop-shadow-[0_2px_10px_rgba(16,185,129,0.3)]">
+                        <span className="text-xl sm:text-2xl mr-1.5 text-emerald-400/70 drop-shadow-none">฿</span>
+                        {calcDetails.cost ? calcDetails.cost.toFixed(2) : "0.00"}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="relative">
-                    <input 
-                      type="number" step="0.1"
-                      value={pricePerUnit}
-                      onChange={(e) => setPricePerUnit(e.target.value)}
-                      className="w-full bg-black/40 hover:bg-white/5 border border-white/10 text-emerald-300 rounded-xl pl-4 pr-12 py-2 sm:py-3 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 cursor-pointer shadow-inner font-mono text-sm sm:text-base font-bold transition-all"
-                    />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-400/50 font-bold text-[10px] sm:text-xs uppercase tracking-widest pointer-events-none">THB</span>
+                  <div className="relative z-10">
+                    <label className="block text-[10px] font-bold text-emerald-100/60 mb-2.5 uppercase tracking-widest">
+                      เรทราคาค่าไฟ (บาท/หน่วย)
+                    </label>
+                    
+                    <div className="grid grid-cols-4 gap-2 mb-4">
+                      {[{label: 'ไฟบ้าน', val: 4.5}, {label: 'Off-Peak', val: 2.6}, {label: 'On-Peak', val: 5.8}, {label: 'สาธารณะ', val: 7.5}].map((preset) => (
+                        <button
+                          key={preset.label}
+                          onClick={() => setPricePerUnit(preset.val)}
+                          className={`relative overflow-hidden py-2.5 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider rounded-xl transition-all duration-300 ${
+                            pricePerUnit === preset.val 
+                              ? 'bg-gradient-to-b from-emerald-400 to-emerald-600 text-white shadow-[0_4px_15px_rgba(16,185,129,0.4)] border-transparent scale-[1.02]' 
+                              : 'bg-black/40 border border-white/5 text-emerald-400/60 hover:bg-emerald-500/10 hover:text-emerald-300 hover:border-emerald-500/30'
+                          }`}
+                        >
+                          {pricePerUnit === preset.val && <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>}
+                          <span className="relative z-10">{preset.label}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative group/input">
+                      <input 
+                        type="number" step="0.1"
+                        value={pricePerUnit}
+                        onChange={(e) => setPricePerUnit(e.target.value)}
+                        className="w-full bg-[#050B14] border border-white/5 group-hover/input:border-emerald-500/40 text-emerald-300 rounded-xl pl-4 pr-12 py-3 sm:py-4 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-500/50 shadow-[inset_0_2px_8px_rgba(0,0,0,0.8)] font-mono text-base sm:text-lg font-bold transition-all"
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-emerald-500/40 font-black text-[10px] sm:text-xs uppercase tracking-widest pointer-events-none">THB</span>
+                    </div>
                   </div>
                 </div>
               </div>
