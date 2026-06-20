@@ -37,11 +37,11 @@
       const MAX_DC_POWER = 70.0;
 
       const [currentSoC, setCurrentSoC] = useState(20);
-      const [targetSoC, setTargetSoC] = useState(100);
-      const [chargerType, setChargerType] = useState('DC');
+      const [targetSoC, setTargetSoC] = useState(80); // เปลี่ยน Default เป็น 80% ตามมาตรฐานสากล
+      const [chargerType, setChargerType] = useState('AC'); // เปลี่ยน Default เป็น AC
       const [stationPower, setStationPower] = useState(120);
-      const [acInputMode, setAcInputMode] = useState('kW');
-      const [acAmps, setAcAmps] = useState(16);
+      const [acInputMode, setAcInputMode] = useState('A'); // เปลี่ยน Default เป็นสายพกพา (Amps)
+      const [acAmps, setAcAmps] = useState(10); // เปลี่ยน Default เป็น 10A
       const [targetTime, setTargetTime] = useState('07:00');
       const [pricePerUnit, setPricePerUnit] = useState(4.5); // ตั้งค่าเริ่มต้นเป็นเรทไฟบ้านปกติ
       
