@@ -43,7 +43,7 @@
       const [acInputMode, setAcInputMode] = useState('kW');
       const [acAmps, setAcAmps] = useState(16);
       const [targetTime, setTargetTime] = useState('07:00');
-      const [pricePerUnit, setPricePerUnit] = useState(2.6); // ตั้งค่าเริ่มต้นเป็นเรท Off-Peak
+      const [pricePerUnit, setPricePerUnit] = useState(4.5); // ตั้งค่าเริ่มต้นเป็นเรทไฟบ้านปกติ
       
       useEffect(() => {
         if (targetSoC <= currentSoC) {
@@ -380,12 +380,12 @@
                     เรทราคาค่าไฟ (บาท/หน่วย)
                   </label>
                   
-                  <div className="flex gap-2 mb-3">
-                    {[{label: 'Off-Peak', val: 2.6}, {label: 'On-Peak', val: 5.8}, {label: 'ตู้สาธารณะ', val: 7.5}].map((preset) => (
+                  <div className="grid grid-cols-4 gap-1 sm:gap-2 mb-3">
+                    {[{label: 'ไฟบ้าน', val: 4.5}, {label: 'Off-Peak', val: 2.6}, {label: 'On-Peak', val: 5.8}, {label: 'สาธารณะ', val: 7.5}].map((preset) => (
                       <button
                         key={preset.label}
                         onClick={() => setPricePerUnit(preset.val)}
-                        className={`flex-1 py-1.5 sm:py-2 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-all ${
+                        className={`py-1.5 sm:py-2 text-[8px] sm:text-[10px] font-bold uppercase tracking-wider rounded-lg border transition-all ${
                           pricePerUnit === preset.val 
                             ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.2)]' 
                             : 'bg-black/20 border-white/5 text-emerald-400/50 hover:bg-white/10 hover:text-emerald-300'
