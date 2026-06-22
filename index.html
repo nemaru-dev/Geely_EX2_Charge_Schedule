@@ -44,15 +44,13 @@
       const [currentSoC, setCurrentSoC] = useState(63);
       const [targetSoC, setTargetSoC] = useState(100);
       
-      // ตั้ง Default เป็น AC (Home-First)
       const [chargerType, setChargerType] = useState('AC');
       const [dcPower, setDcPower] = useState(120);
       const [acPower, setAcPower] = useState(7);
-      const [acInputMode, setAcInputMode] = useState('A'); // Default เป็นสายพกพา
-      const [acAmps, setAcAmps] = useState(10); // Default 10A
+      const [acInputMode, setAcInputMode] = useState('A'); 
+      const [acAmps, setAcAmps] = useState(10); 
       const [targetTime, setTargetTime] = useState('06:30');
       
-      // ตั้ง Default ค่าไฟให้ตรงกับไฟบ้านปกติ
       const [pricePerUnit, setPricePerUnit] = useState(4.5);
       
       const calcDetails = useMemo(() => {
@@ -236,6 +234,7 @@
         }
       }, [currentSoC, targetSoC, chargerType]);
 
+      // Array ชุดข้อมูลนี้จะสลับเปลี่ยนเองทันทีเมื่อผู้ใช้เปลี่ยน Charger Type
       const pricePresets = chargerType === 'AC' 
         ? [
             {label: 'บ้าน Off-Peak', val: 2.6}, 
@@ -432,7 +431,7 @@
                 )}
               </div>
 
-              {/* กู้คืนดีไซน์ Smart Schedule แบบพรีเมียม */}
+              {/* วาง Smart Schedule แค่ชุดเดียวเท่านั้น */}
               <div className="bg-gradient-to-br from-fuchsia-900/30 to-violet-900/30 p-5 sm:p-6 rounded-[24px] border border-fuchsia-500/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden mt-2">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
                 
@@ -489,7 +488,7 @@
                 </div>
               </div>
 
-              {/* กู้คืนดีไซน์ตัวคำนวณค่าไฟแบบพรีเมียม */}
+              {/* วาง Estimated Cost แค่ชุดเดียวเท่านั้น */}
               <div className="relative group mt-2">
                 <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-[24px] blur-[14px] opacity-20 group-hover:opacity-30 transition duration-700"></div>
 
