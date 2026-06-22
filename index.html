@@ -50,11 +50,7 @@
       const [targetTime, setTargetTime] = useState('06:30');
       const [pricePerUnit, setPricePerUnit] = useState(4.5);
       
-      useEffect(() => {
-        if (targetSoC <= currentSoC) {
-          setTargetSoC(Math.min(currentSoC + 1, 100));
-        }
-      }, [currentSoC, targetSoC]);
+      // นำ useEffect ที่คอยดัน targetSoC ออกไป เพื่อปลดล็อคให้ลากได้อย่างอิสระ
 
       const calcDetails = useMemo(() => {
         let currentStationPower = Number(stationPower) || 0;
@@ -62,8 +58,12 @@
           currentStationPower = (acAmps * 230) / 1000;
         }
 
-        if (currentSoC >= targetSoC || currentStationPower <= 0) {
-          return { hours: 0, minutes: 0, error: "ข้อมูลไม่ถูกต้อง", actualPower: 0, bottleneck: null, cost: 0 };
+        // จัดการ Error แบบแยกระดับความผิดพลาดเพื่อความฉลาดของ UI
+        if (currentSoC >= targetSoC) {
+          return { hours: 0, minutes: 0, error: "แบตเตอรี่ถึงเป้าหมายแล้ว", actualPower: 0, bottleneck: null, cost: 0 };
+        }
+        if (currentStationPower <= 0) {
+          return { hours: 0, minutes: 0, error: "ข้อมูลกำลังไฟตู้ไม่ถูกต้อง", actualPower: 0, bottleneck: null, cost: 0 };
         }
 
         const energyNeeded = CAPACITY * ((targetSoC - currentSoC) / 100);
@@ -252,7 +252,9 @@
               </div>
               
               {calcDetails.error ? (
-                <div className="text-2xl font-bold text-rose-400 mt-2">{calcDetails.error}</div>
+                <div className="text-xl sm:text-2xl font-bold text-rose-400 mt-2 text-center drop-shadow-md bg-rose-500/10 px-4 py-2 rounded-xl border border-rose-500/20">
+                  {calcDetails.error}
+                </div>
               ) : (
                 <div className="text-[56px] leading-none font-black text-white tracking-tight drop-shadow-lg mt-2 flex items-baseline">
                   {calcDetails.hours > 0 && (
@@ -283,16 +285,34 @@
                     <span>แบตเตอรี่ปัจจุบัน</span>
                     <span className="text-cyan-400 font-black bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">{currentSoC}%</span>
                   </label>
-                  <input type="range" min="0" max="99" step="1" value={currentSoC} onChange={(e) => setCurrentSoC(Number(e.target.value))} className="w-full accent-cyan-400 h-2 bg-white/5 rounded-full appearance-none cursor-pointer" />
+                  <input 
+                    type="range" min="0" max="100" step="1"
+                    value={currentSoC}
+                    onChange={(e) => setCurrentSoC(Number(e.target.value))}
+                    className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all
+                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(34,211,238,0.6)] [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]
+                      [&::-moz-range-thumb]:w-7 [&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:bg-cyan-400 [&::-moz-range-thumb]:border-[3px] [&::-moz-range-thumb]:border-[#120F24] [&::-moz-range-thumb]:rounded-full"
+                    style={{ background: `linear-gradient(to right, #22d3ee ${currentSoC}%, rgba(255,255,255,0.05) ${currentSoC}%)` }}
+                  />
                 </div>
+                
                 <div>
                   <label className="flex justify-between text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
                     <span>เป้าหมายการชาร์จ</span>
                     <span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2 py-0.5 rounded border border-fuchsia-500/20">{targetSoC}%</span>
                   </label>
-                  <input type="range" min={Math.min(currentSoC + 1, 100)} max="100" step="1" value={targetSoC} onChange={(e) => setTargetSoC(Number(e.target.value))} className="w-full accent-fuchsia-500 h-2 bg-white/5 rounded-full appearance-none cursor-pointer" />
+                  {/* เปลี่ยน min เป็น 0 เพื่อไม่ให้ UI บังคับหนี */}
+                  <input 
+                    type="range" min="0" max="100" step="1"
+                    value={targetSoC}
+                    onChange={(e) => setTargetSoC(Number(e.target.value))}
+                    className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all
+                      [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-fuchsia-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(217,70,239,0.6)] [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]
+                      [&::-moz-range-thumb]:w-7 [&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:bg-fuchsia-500 [&::-moz-range-thumb]:border-[3px] [&::-moz-range-thumb]:border-[#120F24] [&::-moz-range-thumb]:rounded-full"
+                    style={{ background: `linear-gradient(to right, #d946ef ${targetSoC}%, rgba(255,255,255,0.05) ${targetSoC}%)` }}
+                  />
                   {targetSoC > 80 ? (
-                     <p className="text-[11px] text-slate-400 mt-3 flex items-start gap-2 bg-rose-500/5 p-2.5 rounded-lg border border-rose-500/10">
+                     <p className="text-[11px] text-slate-400 mt-4 flex items-start gap-2 bg-rose-500/5 p-2.5 rounded-lg border border-rose-500/10">
                        <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400" />
                        แบตเตอรี่ LFP ของ EX2 ชาร์จ 100% ได้ แต่ระบบ BMS จะลดความเร็วช่วง 80-100% ลงอย่างมากเพื่อถนอมเซลล์
                      </p>
@@ -322,8 +342,16 @@
                       ))}
                     </div>
                     <div>
-                      <input type="range" min="6" max="32" step="1" value={acAmps} onChange={(e) => setAcAmps(Number(e.target.value))} className="w-full accent-fuchsia-500 h-2 bg-white/5 rounded-full appearance-none cursor-pointer mt-2" />
-                      <div className="flex justify-between text-[10px] text-purple-400/50 mt-2 font-bold px-1 uppercase">
+                      <input 
+                        type="range" min="6" max="32" step="1"
+                        value={acAmps}
+                        onChange={(e) => setAcAmps(Number(e.target.value))}
+                        className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all
+                          [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-fuchsia-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(217,70,239,0.6)] [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]
+                          [&::-moz-range-thumb]:w-7 [&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:bg-fuchsia-500 [&::-moz-range-thumb]:border-[3px] [&::-moz-range-thumb]:border-[#120F24] [&::-moz-range-thumb]:rounded-full"
+                        style={{ background: `linear-gradient(to right, #d946ef ${((acAmps - 6) / 26) * 100}%, rgba(255,255,255,0.05) ${((acAmps - 6) / 26) * 100}%)` }}
+                      />
+                      <div className="flex justify-between text-[10px] text-purple-400/50 mt-3 font-bold px-1 uppercase">
                         <span>6A Min</span>
                         <span className="text-fuchsia-400">{acAmps} A</span>
                         <span>32A Max</span>
@@ -345,7 +373,7 @@
                 )}
               </div>
 
-              {/* กู้คืนและอัปเดต Smart Schedule (Stacked 2 Rows) */}
+              {/* Smart Schedule (Stacked 2 Rows) */}
               <div className="bg-gradient-to-br from-fuchsia-900/30 to-violet-900/30 p-5 sm:p-6 rounded-[24px] border border-fuchsia-500/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden mt-2">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
                 
@@ -402,14 +430,13 @@
                 </div>
               </div>
 
-              {/* กู้คืนและจัดกึ่งกลาง (Absolute Center) โมดูลคำนวณค่าไฟ */}
+              {/* โมดูลคำนวณค่าไฟ */}
               <div className="relative group mt-2">
                 <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-[24px] blur-[14px] opacity-20 group-hover:opacity-30 transition duration-700"></div>
 
                 <div className="bg-[#0f172a]/90 backdrop-blur-xl p-5 sm:p-6 rounded-[24px] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] relative overflow-hidden flex flex-col items-center">
                   <div className="absolute top-0 inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-emerald-400/40 to-transparent"></div>
                   
-                  {/* Neon Glow หลังตัวเลขให้ดูสว่างพุ่งทะลุจอ */}
                   <div className="absolute top-[35%] left-1/2 -translate-x-1/2 w-48 h-48 bg-emerald-500/20 rounded-full blur-[60px] pointer-events-none"></div>
 
                   <div className="mb-6 sm:mb-8 relative z-10 flex flex-col items-center gap-3 w-full">
@@ -419,7 +446,6 @@
                     </div>
                     
                     <div className="text-center w-full mt-2">
-                      {/* ปรับขนาดตัวเลขให้อยู่ในระดับพอดี (40px บนมือถือ / 52px บนจอใหญ่) */}
                       <span className="text-[40px] sm:text-[52px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-teal-200 to-emerald-600 font-mono tracking-tight drop-shadow-[0_4px_20px_rgba(16,185,129,0.5)] block">
                         <span className="text-xl sm:text-2xl mr-1.5 text-emerald-400/80 drop-shadow-none relative -top-1.5 sm:-top-2">฿</span>
                         {calcDetails.cost ? calcDetails.cost.toFixed(2) : "0.00"}
@@ -432,7 +458,18 @@
                       เรทราคาค่าไฟ (บาท/หน่วย)
                     </label>
                     
-                    <div className="grid grid-cols-4 gap-2 mb-4 max-w-sm mx-auto">
+                    {/* สลับเอาช่องกรอก Input ขึ้นมาไว้เป็นแกนหลัก */}
+                    <div className="relative group/input max-w-[200px] mx-auto mb-4">
+                      <input 
+                        type="number" step="0.1"
+                        value={pricePerUnit}
+                        onChange={(e) => setPricePerUnit(e.target.value)}
+                        className="w-full bg-[#050B14] border border-white/5 group-hover/input:border-emerald-500/40 text-emerald-300 rounded-xl px-4 py-3 sm:py-4 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-500/50 shadow-[inset_0_2px_8px_rgba(0,0,0,0.8)] font-mono text-xl sm:text-2xl font-black transition-all text-center"
+                      />
+                    </div>
+
+                    {/* เอาปุ่ม Preset มาไว้ด้านล่าง เป็นทางลัดในการกรอก */}
+                    <div className="grid grid-cols-4 gap-2 max-w-sm mx-auto">
                       {[{label: 'ไฟบ้าน', val: 4.5}, {label: 'Off-Peak', val: 2.6}, {label: 'On-Peak', val: 5.8}, {label: 'สาธารณะ', val: 7.5}].map((preset) => (
                         <button
                           key={preset.label}
@@ -449,14 +486,6 @@
                       ))}
                     </div>
 
-                    <div className="relative group/input max-w-[200px] mx-auto">
-                      <input 
-                        type="number" step="0.1"
-                        value={pricePerUnit}
-                        onChange={(e) => setPricePerUnit(e.target.value)}
-                        className="w-full bg-[#050B14] border border-white/5 group-hover/input:border-emerald-500/40 text-emerald-300 rounded-xl px-4 py-3 sm:py-4 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-500/50 shadow-[inset_0_2px_8px_rgba(0,0,0,0.8)] font-mono text-xl sm:text-2xl font-black transition-all text-center"
-                      />
-                    </div>
                   </div>
                 </div>
               </div>
