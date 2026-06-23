@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -41,15 +42,19 @@
       const MAX_AC_POWER = 6.6;
       const MAX_DC_POWER = 70.0;
 
-      const [currentSoC, setCurrentSoC] = useState(63);
-      const [targetSoC, setTargetSoC] = useState(100);
+      // ปรับลดค่าเริ่มต้นแบตเตอรี่ปัจจุบันมาอยู่ที่ 30% ตามความเป็นจริงของคนใช้ EV
+      const [currentSoC, setCurrentSoC] = useState(30);
+      const [targetSoC, setTargetSoC] = useState(80);
       
       const [chargerType, setChargerType] = useState('AC');
       const [dcPower, setDcPower] = useState(120);
       const [acPower, setAcPower] = useState(7);
       const [acInputMode, setAcInputMode] = useState('A'); 
       const [acAmps, setAcAmps] = useState(10); 
-      const [targetTime, setTargetTime] = useState('06:30');
+      
+      const [scheduleMode, setScheduleMode] = useState('FINISH_BY'); 
+      const [targetTime, setTargetTime] = useState('06:30'); 
+      const [userStartTime, setUserStartTime] = useState(new Date().toTimeString().slice(0, 5)); 
       
       const [pricePerUnit, setPricePerUnit] = useState(4.5);
       
@@ -127,24 +132,56 @@
 
       const schedule = useMemo(() => {
         if (calcDetails.error || (calcDetails.hours === 0 && calcDetails.minutes === 0)) return null;
-        const [tHours, tMinutes] = targetTime.split(':').map(Number);
         const totalChargeMinutes = (calcDetails.hours * 60) + calcDetails.minutes;
-        let startMinutesTotal = (tHours * 60 + tMinutes) - totalChargeMinutes;
-        let dayOffset = '';
+        
+        if (scheduleMode === 'FINISH_BY') {
+          const [tHours, tMinutes] = targetTime.split(':').map(Number);
+          let startMinutesTotal = (tHours * 60 + tMinutes) - totalChargeMinutes;
+          let dayOffset = '';
 
-        if (startMinutesTotal < 0) {
-          startMinutesTotal = (24 * 60) + (startMinutesTotal % (24 * 60));
-          dayOffset = '(คืนก่อนหน้า)';
+          if (startMinutesTotal < 0) {
+            startMinutesTotal = (24 * 60) + (startMinutesTotal % (24 * 60));
+            dayOffset = '(คืนก่อนหน้า)';
+          }
+
+          const sHours = Math.floor(startMinutesTotal / 60) % 24;
+          const sMinutes = startMinutesTotal % 60;
+
+          return {
+            inputLabel: `ต้องการใช้รถเวลา (${targetSoC}%)`,
+            outputLabel: 'ตั้งเวลาเริ่มชาร์จ (ในแอพ)',
+            outputTime: `${String(sHours).padStart(2, '0')}:${String(sMinutes).padStart(2, '0')}`,
+            dayOffset,
+            inputValue: targetTime,
+            setInputValue: setTargetTime,
+            colorInput: 'text-pink-400',
+            colorOutput: 'text-cyan-400',
+            gradientOutput: 'from-cyan-300 to-blue-400'
+          };
+        } else {
+          const [sHours, sMinutes] = userStartTime.split(':').map(Number);
+          let endMinutesTotal = (sHours * 60 + sMinutes) + totalChargeMinutes;
+          let dayOffset = '';
+
+          if (endMinutesTotal >= 24 * 60) {
+            dayOffset = '(วันถัดไป)';
+          }
+          const eHours = Math.floor(endMinutesTotal / 60) % 24;
+          const eMinutes = endMinutesTotal % 60;
+
+          return {
+            inputLabel: 'เสียบสายเริ่มชาร์จเวลา',
+            outputLabel: `ชาร์จเสร็จถึงเป้า (${targetSoC}%)`,
+            outputTime: `${String(eHours).padStart(2, '0')}:${String(eMinutes).padStart(2, '0')}`,
+            dayOffset,
+            inputValue: userStartTime,
+            setInputValue: setUserStartTime,
+            colorInput: 'text-cyan-400',
+            colorOutput: 'text-pink-400',
+            gradientOutput: 'from-pink-300 to-fuchsia-400'
+          };
         }
-
-        const sHours = Math.floor(startMinutesTotal / 60) % 24;
-        const sMinutes = startMinutesTotal % 60;
-
-        return {
-          startTime: `${String(sHours).padStart(2, '0')}:${String(sMinutes).padStart(2, '0')}`,
-          dayOffset
-        };
-      }, [calcDetails, targetTime]);
+      }, [calcDetails, targetTime, userStartTime, scheduleMode, targetSoC]);
 
       const canvasRef = useRef(null);
 
@@ -234,7 +271,6 @@
         }
       }, [currentSoC, targetSoC, chargerType]);
 
-      // Array ชุดข้อมูลนี้จะสลับเปลี่ยนเองทันทีเมื่อผู้ใช้เปลี่ยน Charger Type
       const pricePresets = chargerType === 'AC' 
         ? [
             {label: 'บ้าน Off-Peak', val: 2.6}, 
@@ -431,64 +467,79 @@
                 )}
               </div>
 
-              {/* วาง Smart Schedule แค่ชุดเดียวเท่านั้น */}
               <div className="bg-gradient-to-br from-fuchsia-900/30 to-violet-900/30 p-5 sm:p-6 rounded-[24px] border border-fuchsia-500/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden mt-2">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-pink-500/20 rounded-full blur-3xl pointer-events-none"></div>
                 
-                <div className="flex items-center gap-2.5 text-pink-300 font-bold mb-5 relative z-10 text-xs sm:text-sm tracking-widest uppercase drop-shadow-md">
-                  <div className="p-1.5 bg-pink-500/10 rounded-lg border border-pink-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
-                    <CalendarClock className="w-4 h-4 sm:w-5 sm:h-5 text-pink-300" />
+                <div className="flex items-center justify-between mb-5 relative z-10">
+                  <div className="flex items-center gap-2.5 text-pink-300 font-bold text-xs sm:text-sm tracking-widest uppercase drop-shadow-md">
+                    <div className="p-1.5 bg-pink-500/10 rounded-lg border border-pink-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
+                      <CalendarClock className="w-4 h-4 sm:w-5 sm:h-5 text-pink-300" />
+                    </div>
+                    Smart Schedule
                   </div>
-                  Smart Schedule
+                </div>
+
+                <div className="flex bg-black/40 rounded-xl p-1 mb-5 border border-white/5 shadow-inner relative z-10">
+                  <button 
+                    onClick={() => setScheduleMode('FINISH_BY')} 
+                    className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-300 ${scheduleMode === 'FINISH_BY' ? 'bg-white/10 text-white border border-white/20' : 'text-purple-400/50 hover:text-white'}`}
+                  >
+                    ตั้งเวลาใช้รถ (ตื่นมาเต็ม)
+                  </button>
+                  <button 
+                    onClick={() => setScheduleMode('START_AT')} 
+                    className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-300 ${scheduleMode === 'START_AT' ? 'bg-white/10 text-white border border-white/20' : 'text-purple-400/50 hover:text-white'}`}
+                  >
+                    เริ่มชาร์จเดี๋ยวนี้ (คำนวณเป้า)
+                  </button>
                 </div>
                 
                 <div className="flex flex-col gap-3 relative z-10">
                   <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
                     <label className="block text-[10px] sm:text-xs font-bold text-fuchsia-200/70 mb-2 uppercase tracking-widest">
-                      ต้องการใช้รถเวลา <span className="text-pink-400 ml-0.5">({targetSoC}%)</span>
+                      {schedule?.inputLabel}
                     </label>
                     <div className="relative group">
                       <input 
                         type="time" 
-                        value={targetTime}
-                        onChange={(e) => setTargetTime(e.target.value)}
-                        className="w-full bg-[#050B14] hover:bg-white/5 border border-white/10 group-hover:border-pink-500/40 text-white rounded-xl pl-12 pr-4 py-3 sm:py-4 focus:outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500/50 cursor-pointer shadow-[inset_0_2px_8px_rgba(0,0,0,0.8)] font-mono text-lg sm:text-xl font-bold transition-all"
+                        value={schedule?.inputValue}
+                        onChange={(e) => schedule?.setInputValue(e.target.value)}
+                        className={`w-full bg-[#050B14] hover:bg-white/5 border border-white/10 group-hover:border-pink-500/40 text-white rounded-xl pl-12 pr-4 py-3 sm:py-4 focus:outline-none focus:border-pink-400 focus:ring-1 focus:ring-pink-500/50 cursor-pointer shadow-[inset_0_2px_8px_rgba(0,0,0,0.8)] font-mono text-lg sm:text-xl font-bold transition-all ${schedule?.colorInput}`}
                       />
-                      <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pink-400 pointer-events-none group-hover:scale-110 group-hover:text-pink-300 transition-all" />
+                      <Clock className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none group-hover:scale-110 transition-all ${schedule?.colorInput}`} />
                     </div>
                   </div>
                   
                   <div className="flex justify-center -my-3 relative z-20">
                     <div className="bg-[#120F24] p-1.5 rounded-full border border-white/10 shadow-lg">
-                      <svg className="w-5 h-5 text-cyan-400/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="w-5 h-5 text-purple-400/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
                       </svg>
                     </div>
                   </div>
 
-                  <div className="bg-gradient-to-br from-cyan-900/40 to-blue-900/40 rounded-2xl p-5 border border-cyan-500/30 text-center shadow-[0_4px_20px_rgba(6,182,212,0.15)] mt-1">
-                    <label className="block text-[10px] sm:text-xs font-bold text-cyan-200/70 mb-2 uppercase tracking-widest">
-                      ตั้งเวลาเริ่มชาร์จ <span className="text-cyan-400/70 font-medium tracking-normal text-[9px] sm:text-[10px]">(ในแอพ)</span>
+                  <div className="bg-gradient-to-br from-indigo-900/40 to-blue-900/40 rounded-2xl p-5 border border-indigo-500/30 text-center shadow-[0_4px_20px_rgba(0,0,0,0.2)] mt-1">
+                    <label className="block text-[10px] sm:text-xs font-bold text-indigo-200/70 mb-2 uppercase tracking-widest">
+                      {schedule?.outputLabel}
                     </label>
                     {schedule ? (
                       <div>
-                        <div className="text-[36px] sm:text-[42px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400 font-mono tracking-tight drop-shadow-md">
-                          {schedule.startTime}
+                        <div className={`text-[36px] sm:text-[42px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-r ${schedule?.gradientOutput} font-mono tracking-tight drop-shadow-md`}>
+                          {schedule.outputTime}
                         </div>
                         {schedule.dayOffset && (
-                          <div className="text-[10px] sm:text-xs text-cyan-100 font-bold mt-2 bg-cyan-500/20 inline-block px-3 py-1 rounded-md border border-cyan-500/30 uppercase tracking-widest shadow-sm">
+                          <div className={`text-[10px] sm:text-xs font-bold mt-2 bg-white/5 inline-block px-3 py-1 rounded-md border border-white/10 uppercase tracking-widest shadow-sm ${schedule?.colorOutput}`}>
                             {schedule.dayOffset}
                           </div>
                         )}
                       </div>
                     ) : (
-                      <div className="text-cyan-400/50 text-lg mt-2 font-medium">-</div>
+                      <div className="text-indigo-400/50 text-lg mt-2 font-medium">-</div>
                     )}
                   </div>
                 </div>
               </div>
 
-              {/* วาง Estimated Cost แค่ชุดเดียวเท่านั้น */}
               <div className="relative group mt-2">
                 <div className="absolute -inset-1 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-[24px] blur-[14px] opacity-20 group-hover:opacity-30 transition duration-700"></div>
 
@@ -578,3 +629,6 @@
   </script>
 </body>
 </html>
+
+
+```
