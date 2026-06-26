@@ -32,7 +32,7 @@
 
   <script id="jsx-source" type="text/plain">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, linkWithPopup, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, linkWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // =====================================================================
@@ -191,6 +191,17 @@
         }
       };
 
+      // Method: Sign Out
+      const handleSignOut = async () => {
+        if (!auth) return;
+        try {
+          await signOut(auth);
+          setHistory([]); // ล้างข้อมูลประวัติบนหน้าจอทันที
+        } catch (error) {
+          console.error("Sign Out Error", error);
+        }
+      };
+
       // Methods: CRUD
       const addRecord = async (record) => {
         const newRecordWithId = { id: Date.now().toString(), ...record };
@@ -247,7 +258,7 @@
         }
       };
 
-      return { user, history, isReady, storageMode, isAuthLoading, authError, handleGoogleSignIn, addRecord, deleteRecord, updateRecord };
+      return { user, history, isReady, storageMode, isAuthLoading, authError, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord };
     }
 
     // 2. Hook สำหรับแยกการคำนวณแบตเตอรี่ (Business Logic)
@@ -612,7 +623,14 @@
                   
                   <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/5 shrink-0">
                       <div className="flex items-center gap-2 text-cyan-400 font-bold tracking-widest uppercase"><HistoryIcon className="w-5 h-5" /> ประวัติการชาร์จ</div>
-                      <button onClick={() => setShowHistory(false)} className="text-white/50 hover:text-white p-2 text-xl font-bold transition-colors">✕</button>
+                      <div className="flex items-center gap-3">
+                          {systemDB.user && !systemDB.user.isAnonymous && systemDB.storageMode === 'cloud' && (
+                              <button onClick={systemDB.handleSignOut} className="text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg transition-colors font-bold uppercase tracking-widest">
+                                  ออกจากระบบ
+                              </button>
+                          )}
+                          <button onClick={() => setShowHistory(false)} className="text-white/50 hover:text-white p-2 text-xl font-bold transition-colors">✕</button>
+                      </div>
                   </div>
                   
                   <div className="p-6 bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border-b border-white/5 text-center relative shrink-0">
