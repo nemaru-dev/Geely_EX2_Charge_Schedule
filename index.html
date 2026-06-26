@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="th">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -35,9 +35,6 @@
     import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, linkWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    // =====================================================================
-    // 🛑 1. นำข้อมูล Firebase Config ของคุณมาวางที่นี่ สำหรับรันบน GitHub 🛑
-    // =====================================================================
     const MY_FIREBASE_CONFIG = {
       apiKey: "AIzaSyBIOOnXGxET8lN-K6h-HRX8dyfrYQlLxZc",
       authDomain: "geely-tracker.firebaseapp.com",
@@ -48,7 +45,6 @@
       measurementId: "G-WVJLH5HPS4"
     };
 
-    // ระบบจะเช็คว่ามี Config หรือไม่ ถ้าไม่มีจะสลับไปใช้ LocalStorage อัตโนมัติ
     let app = null, auth = null, db = null;
     const isFirebaseValid = Object.keys(MY_FIREBASE_CONFIG).length > 0 && MY_FIREBASE_CONFIG.apiKey;
     
@@ -75,7 +71,6 @@
       VAMPIRE_DRAIN_KW: 0.3
     };
 
-    // --- UI Components (Icons) ---
     const Zap = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>;
     const Clock = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>;
     const Wallet = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path><path d="M4 6v12c0 1.1.9 2 2 2h14v-8"></path><path d="M18 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"></path></svg>;
@@ -95,9 +90,6 @@
       </svg>
     );
 
-    // --- Custom Hooks ---
-
-    // 1. Hook สำหรับเชื่อมต่อระบบ (Hybrid: LocalStorage <-> Firebase) พร้อมระบบดักจับ Error ขั้นสูง
     function useSystemData() {
       const [user, setUser] = useState(null);
       const [history, setHistory] = useState([]);
@@ -116,7 +108,6 @@
           setIsReady(true);
       };
 
-      // Effect: Initialization (Local vs Cloud)
       useEffect(() => {
         if (!auth) {
           loadLocalData();
@@ -133,7 +124,7 @@
                    await signInAnonymously(auth); 
                } catch (error) { 
                    if (error.code === 'auth/admin-restricted-operation') {
-                       setAuthError('คุณยังไม่ได้เปิดใช้งานบัญชีชั่วคราว (Anonymous) ใน Firebase Authentication');
+                       setAuthError('Anonymous authentication is disabled in your Firebase console.');
                    } else {
                        setAuthError(error.message);
                    }
@@ -144,7 +135,6 @@
         return () => unsubscribe();
       }, []);
 
-      // Effect: Cloud Data Subscription
       useEffect(() => {
         if (storageMode !== 'cloud' || !user || !db || user.uid === 'local_user') return;
         const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
@@ -152,11 +142,11 @@
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.timestamp - a.timestamp);
           setHistory(data);
-          setIsReady(true); // ข้อมูลโหลดเสร็จ
+          setIsReady(true);
         }, (error) => {
           if (error.code === 'permission-denied') {
-              console.warn("Firestore Permission Denied. Falling back to local storage.");
-              setAuthError('คุณยังไม่ได้ปลดล็อกสิทธิ์ Firestore กรุณาไปที่ Firebase Console > Firestore > Rules และเปลี่ยนเป็น allow read, write: if request.auth != null;');
+              console.warn("Firestore access denied. Falling back to local storage.");
+              setAuthError('Access Denied: Please update your Firestore Database Rules to allow read/write.');
               loadLocalData();
           } else {
               console.error("Firestore Error", error);
@@ -166,7 +156,6 @@
         return () => unsubscribe();
       }, [user, storageMode]);
 
-      // Method: Google Login
       const handleGoogleSignIn = async () => {
         if (!auth) return;
         setIsAuthLoading(true);
@@ -181,28 +170,26 @@
           if (error.code === 'auth/credential-already-in-use') {
              await signInWithPopup(auth, provider);
           } else if (error.code === 'auth/unauthorized-domain') {
-             alert("โดเมนนี้ยังไม่ได้รับอนุญาตให้ล็อกอินครับ!\n\nวิธีแก้:\n1. ไปที่ Firebase Console > Authentication\n2. เลือกแท็บ Settings > Authorized domains\n3. กด Add domain แล้วเพิ่มโดเมนที่คุณใช้อยู่ (เช่น googleusercontent.com หรือ localhost) ลงไปครับ");
+             alert("This domain is unauthorized.\n\nResolution:\n1. Go to Firebase Console > Authentication\n2. Select Settings > Authorized domains\n3. Add this site domain to the whitelist.");
           } else {
              console.error("Google Auth Error", error);
-             alert("ไม่สามารถล็อกอินได้: " + error.message);
+             alert("Sign-in failed: " + error.message);
           }
         } finally {
           setIsAuthLoading(false);
         }
       };
 
-      // Method: Sign Out
       const handleSignOut = async () => {
         if (!auth) return;
         try {
           await signOut(auth);
-          setHistory([]); // ล้างข้อมูลประวัติบนหน้าจอทันที
+          setHistory([]);
         } catch (error) {
           console.error("Sign Out Error", error);
         }
       };
 
-      // Methods: CRUD
       const addRecord = async (record) => {
         const newRecordWithId = { id: Date.now().toString(), ...record };
         if (storageMode === 'cloud' && db && user && user.uid !== 'local_user') {
@@ -210,8 +197,6 @@
             await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), record);
           } catch(e) { 
             if (e.code === 'permission-denied') {
-                console.warn("Permission denied while adding doc. Fallback to local.");
-                alert('บันทึกขึ้น Cloud ไม่สำเร็จเพราะติดสิทธิ์ Firestore Rules\nระบบจะบันทึกลงในเครื่องชั่วคราวให้แทนครับ');
                 setStorageMode('local');
                 const updated = [newRecordWithId, ...history].sort((a,b) => b.timestamp - a.timestamp);
                 setHistory(updated);
@@ -221,7 +206,6 @@
             }
           }
         } else {
-          // LocalStorage save
           const updated = [newRecordWithId, ...history].sort((a,b) => b.timestamp - a.timestamp);
           setHistory(updated);
           localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
@@ -233,8 +217,7 @@
            try { 
                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', id)); 
            } catch(error) { 
-               if (error.code === 'permission-denied') alert('ลบข้อมูลไม่ได้ เพราะติดสิทธิ์ Firestore Rules');
-               else console.error(error); 
+               console.error(error); 
            }
         } else {
            const updated = history.filter(item => item.id !== id);
@@ -248,8 +231,7 @@
            try { 
                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', id), { cost: newCost }); 
            } catch(error) { 
-               if (error.code === 'permission-denied') alert('อัปเดตข้อมูลไม่ได้ เพราะติดสิทธิ์ Firestore Rules');
-               else console.error(error); 
+               console.error(error); 
            }
         } else {
            const updated = history.map(item => item.id === id ? { ...item, cost: newCost } : item);
@@ -261,24 +243,23 @@
       return { user, history, isReady, storageMode, isAuthLoading, authError, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord };
     }
 
-    // 2. Hook สำหรับแยกการคำนวณแบตเตอรี่ (Business Logic)
     function useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit) {
       return useMemo(() => {
         let currentStationPower = chargerType === 'DC' ? Number(dcPower) || 0 : Number(acPower) || 0;
         if (chargerType === 'AC' && acInputMode === 'A') { currentStationPower = (acAmps * 230) / 1000; }
 
-        if (currentSoC >= targetSoC) return { hours: 0, minutes: 0, error: "แบตเตอรี่ถึงเป้าหมายแล้ว", actualPower: 0, bottleneck: null, cost: 0 };
-        if (currentStationPower <= 0) return { hours: 0, minutes: 0, error: "ข้อมูลกำลังไฟไม่ถูกต้อง", actualPower: 0, bottleneck: null, cost: 0 };
+        if (currentSoC >= targetSoC) return { hours: 0, minutes: 0, error: "Battery target reached", actualPower: 0, bottleneck: null, cost: 0 };
+        if (currentStationPower <= 0) return { hours: 0, minutes: 0, error: "Invalid power specification", actualPower: 0, bottleneck: null, cost: 0 };
 
         const energyNeeded = EV_SPECS.CAPACITY * ((targetSoC - currentSoC) / 100);
         let actualPower = 0; let bottleneck = '';
 
         if (chargerType === 'AC') {
-          if (currentStationPower > EV_SPECS.MAX_AC_POWER) { actualPower = EV_SPECS.MAX_AC_POWER; bottleneck = `รถรับไฟ AC ได้สูงสุด ${EV_SPECS.MAX_AC_POWER} kW`; } 
-          else { actualPower = currentStationPower; bottleneck = 'จำกัดตามกำลังเครื่องชาร์จ'; }
+          if (currentStationPower > EV_SPECS.MAX_AC_POWER) { actualPower = EV_SPECS.MAX_AC_POWER; bottleneck = `Vehicle limit: AC ${EV_SPECS.MAX_AC_POWER} kW max`; } 
+          else { actualPower = currentStationPower; bottleneck = 'Charger power capacity limited'; }
         } else {
-          if (currentStationPower > EV_SPECS.MAX_DC_POWER) { actualPower = EV_SPECS.MAX_DC_POWER; bottleneck = `รถรับไฟ DC ได้สูงสุด ${EV_SPECS.MAX_DC_POWER} kW`; } 
-          else { actualPower = currentStationPower; bottleneck = 'จำกัดตามกำลังตู้ชาร์จ'; }
+          if (currentStationPower > EV_SPECS.MAX_DC_POWER) { actualPower = EV_SPECS.MAX_DC_POWER; bottleneck = `Vehicle limit: DC ${EV_SPECS.MAX_DC_POWER} kW max`; } 
+          else { actualPower = currentStationPower; bottleneck = 'Station power capacity limited'; }
         }
 
         let timeInHours = 0;
@@ -308,8 +289,6 @@
         };
       }, [currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit]);
     }
-
-    // --- Isolated Components ---
 
     const GaugeCanvas = memo(({ currentSoC, targetSoC, chargerType }) => {
       const canvasRef = useRef(null);
@@ -354,7 +333,6 @@
     });
 
 
-    // --- Main Application Component ---
     function App() {
       // Data Layer
       const systemDB = useSystemData();
@@ -365,6 +343,9 @@
       const [editingId, setEditingId] = useState(null);
       const [editCost, setEditCost] = useState("");
       const [isUpdating, setIsUpdating] = useState(false);
+      
+      // Focus State: Track which transaction card is selected/active
+      const [activeItemId, setActiveItemId] = useState(null);
 
       const [currentSoC, setCurrentSoC] = useState(30);
       const [targetSoC, setTargetSoC] = useState(80);
@@ -381,12 +362,12 @@
       // Derived Logic
       const calcDetails = useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit);
 
-      // Data Transformation: Group history by Month/Year
+      // Group monthly transaction items
       const groupedHistory = useMemo(() => {
         const groups = {};
         systemDB.history.forEach(item => {
           const date = new Date(item.timestamp);
-          const monthYear = date.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+          const monthYear = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
           const sortKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
           if (!groups[sortKey]) {
@@ -425,9 +406,9 @@
           const [tHours, tMinutes] = targetTime.split(':').map(Number);
           let startMinutesTotal = (tHours * 60 + tMinutes) - totalChargeMinutes;
           let dayOffset = '';
-          if (startMinutesTotal < 0) { startMinutesTotal = (24 * 60) + (startMinutesTotal % (24 * 60)); dayOffset = '(คืนก่อนหน้า)'; }
+          if (startMinutesTotal < 0) { startMinutesTotal = (24 * 60) + (startMinutesTotal % (24 * 60)); dayOffset = '(previous night)'; }
           return {
-            inputLabel: `ต้องการใช้รถเวลา (${targetSoC}%)`, outputLabel: 'ตั้งเวลาเริ่มชาร์จ (ในแอพ)',
+            inputLabel: `Depart at (${targetSoC}%)`, outputLabel: 'Delayed Start Timer (Vehicle)',
             outputTime: `${String(Math.floor(startMinutesTotal / 60) % 24).padStart(2, '0')}:${String(startMinutesTotal % 60).padStart(2, '0')}`, dayOffset,
             inputValue: targetTime, setInputValue: setTargetTime, colorInput: 'text-pink-400', colorOutput: 'text-cyan-400', gradientOutput: 'from-cyan-300 to-blue-400'
           };
@@ -435,17 +416,17 @@
           const [sHours, sMinutes] = userStartTime.split(':').map(Number);
           let endMinutesTotal = (sHours * 60 + sMinutes) + totalChargeMinutes;
           return {
-            inputLabel: 'เสียบสายเริ่มชาร์จเวลา', outputLabel: `ชาร์จเสร็จถึงเป้า (${targetSoC}%)`,
+            inputLabel: 'Plug in time', outputLabel: `Done at Target (${targetSoC}%)`,
             outputTime: `${String(Math.floor(endMinutesTotal / 60) % 24).padStart(2, '0')}:${String(endMinutesTotal % 60).padStart(2, '0')}`, 
-            dayOffset: endMinutesTotal >= 24 * 60 ? '(วันถัดไป)' : '',
+            dayOffset: endMinutesTotal >= 24 * 60 ? '(next day)' : '',
             inputValue: userStartTime, setInputValue: setUserStartTime, colorInput: 'text-cyan-400', colorOutput: 'text-pink-400', gradientOutput: 'from-pink-300 to-fuchsia-400'
           };
         }
       }, [calcDetails, targetTime, userStartTime, scheduleMode, targetSoC]);
 
       const pricePresets = chargerType === 'AC' 
-        ? [ {label: 'บ้าน Off-Peak', val: 2.6}, {label: 'ไฟบ้านปกติ', val: 4.5}, {label: 'บ้าน On-Peak', val: 5.8}, {label: 'AC สาธารณะ', val: 5.9} ]
-        : [ {label: 'PEA Fast (Off)', val: 5.9}, {label: 'PEA Fast (Peak)', val: 6.9}, {label: 'PTT / EA', val: 7.5}, {label: 'PEA Ultra (Peak)', val: 7.9} ];
+        ? [ {label: 'Home Off-Peak', val: 2.6}, {label: 'Home Flat', val: 4.5}, {label: 'Home On-Peak', val: 5.8}, {label: 'Public AC', val: 5.9} ]
+        : [ {label: 'PEA Fast (Off)', val: 5.9}, {label: 'PEA Fast (Peak)', val: 6.9}, {label: 'PTT / EA', val: 7.5}, {label: 'PEA Ultra', val: 7.9} ];
 
       return (
         <div className="min-h-screen flex items-center justify-center p-4 font-sans bg-[#0B0A1A] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-fuchsia-900/40 via-[#0B0A1A] to-cyan-900/30">
@@ -462,7 +443,7 @@
                 </h1>
                 <p className="text-purple-200/70 text-sm mt-1 font-medium tracking-wide uppercase">HyperCharge Tracker</p>
               </div>
-              <button onClick={() => setShowHistory(true)} className="p-3 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-cyan-300 transition-all shadow-md group relative">
+              <button onClick={() => { setShowHistory(true); setActiveItemId(null); }} className="p-3 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-cyan-300 transition-all shadow-md group relative">
                  <HistoryIcon className="w-5 h-5 group-hover:scale-110 transition-transform" />
                  {systemDB.history.length > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-fuchsia-500 rounded-full animate-pulse border border-[#120F24]"></span>}
               </button>
@@ -489,18 +470,18 @@
                   {calcDetails.hours > 0 && (
                     <>
                       <span className="text-transparent bg-clip-text bg-gradient-to-br from-white to-fuchsia-100">{calcDetails.hours}</span>
-                      <span className="text-xl text-fuchsia-300/70 font-medium ml-1 mr-4 tracking-normal">ชม.</span>
+                      <span className="text-xl text-fuchsia-300/70 font-medium ml-1 mr-4 tracking-normal">hrs</span>
                     </>
                   )}
                   <span className="text-transparent bg-clip-text bg-gradient-to-br from-white to-fuchsia-100">{calcDetails.minutes}</span>
-                  <span className="text-xl text-fuchsia-300/70 font-medium ml-1 tracking-normal">นาที</span>
+                  <span className="text-xl text-fuchsia-300/70 font-medium ml-1 tracking-normal">mins</span>
                 </div>
               )}
               
               <div className="mt-6 w-full bg-gradient-to-r from-fuchsia-900/20 to-purple-900/20 backdrop-blur-xl rounded-2xl p-4 border border-fuchsia-500/20 flex items-center gap-4 shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]">
                 <div className="p-2.5 bg-fuchsia-500/20 rounded-xl border border-fuchsia-500/30"><Zap className="w-5 h-5 text-fuchsia-300 flex-shrink-0" /></div>
                 <div className="text-sm flex-1">
-                  <div className="text-purple-200">กำลังไฟเข้า: <span className="font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400 text-lg ml-1">{calcDetails.actualPower.toFixed(1)} kW</span></div>
+                  <div className="text-purple-200">Input Charge Power: <span className="font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400 text-lg ml-1">{calcDetails.actualPower.toFixed(1)} kW</span></div>
                   <div className="text-fuchsia-400/80 text-[11px] font-medium mt-0.5 uppercase tracking-wide">{calcDetails.bottleneck}</div>
                 </div>
               </div>
@@ -511,30 +492,30 @@
               <div className="space-y-6">
                 <div>
                   <label className="flex justify-between text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
-                    <span>แบตเตอรี่ปัจจุบัน</span><span className="text-cyan-400 font-black bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">{currentSoC}%</span>
+                    <span>Current SoC</span><span className="text-cyan-400 font-black bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">{currentSoC}%</span>
                   </label>
                   <input type="range" min="0" max="100" step="1" value={currentSoC} onChange={(e) => setCurrentSoC(Number(e.target.value))} className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(34,211,238,0.6)] [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]" style={{ background: `linear-gradient(to right, #22d3ee ${currentSoC}%, rgba(255,255,255,0.05) ${currentSoC}%)` }} />
                 </div>
                 <div>
                   <label className="flex justify-between text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
-                    <span>เป้าหมายการชาร์จ</span><span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2 py-0.5 rounded border border-fuchsia-500/20">{targetSoC}%</span>
+                    <span>Target SoC</span><span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2 py-0.5 rounded border border-fuchsia-500/20">{targetSoC}%</span>
                   </label>
                   <input type="range" min="0" max="100" step="1" value={targetSoC} onChange={(e) => setTargetSoC(Number(e.target.value))} className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-fuchsia-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(217,70,239,0.6)] [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]" style={{ background: `linear-gradient(to right, #d946ef ${targetSoC}%, rgba(255,255,255,0.05) ${targetSoC}%)` }} />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">ประเภทการชาร์จ</label>
+                <label className="block text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">Charger Type</label>
                 <div className="flex bg-black/40 rounded-xl p-1 mb-4 border border-white/5 shadow-inner">
-                  <button onClick={() => { setChargerType('AC'); setPricePerUnit(4.5); }} className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${chargerType === 'AC' ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-[0_4px_20px_rgba(192,38,211,0.4)] border-transparent' : 'text-purple-400/60 hover:text-white hover:bg-white/5'}`}>AC (ธรรมดา)</button>
-                  <button onClick={() => { setChargerType('DC'); setPricePerUnit(6.9); }} className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${chargerType === 'DC' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-[0_4px_20px_rgba(8,145,178,0.4)] border-transparent' : 'text-purple-400/60 hover:text-white hover:bg-white/5'}`}>DC (ชาร์จเร็ว)</button>
+                  <button onClick={() => { setChargerType('AC'); setPricePerUnit(4.5); }} className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${chargerType === 'AC' ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-[0_4px_20px_rgba(192,38,211,0.4)] border-transparent' : 'text-purple-400/60 hover:text-white hover:bg-white/5'}`}>AC (Slow)</button>
+                  <button onClick={() => { setChargerType('DC'); setPricePerUnit(6.9); }} className={`flex-1 py-3 text-sm font-bold rounded-lg transition-all duration-300 ${chargerType === 'DC' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-[0_4px_20px_rgba(8,145,178,0.4)] border-transparent' : 'text-purple-400/60 hover:text-white hover:bg-white/5'}`}>DC (Fast)</button>
                 </div>
                 
                 {chargerType === 'AC' ? (
                   <>
                     <div className="flex gap-2 mb-4">
-                      <button onClick={() => setAcInputMode('kW')} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${acInputMode === 'kW' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'}`}>ตู้ชาร์จ (kW)</button>
-                      <button onClick={() => setAcInputMode('A')} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${acInputMode === 'A' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'}`}>สายพกพา (Amps)</button>
+                      <button onClick={() => setAcInputMode('kW')} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${acInputMode === 'kW' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'}`}>Power Output (kW)</button>
+                      <button onClick={() => setAcInputMode('A')} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${acInputMode === 'A' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'}`}>Amperage (Amps)</button>
                     </div>
                     {acInputMode === 'A' ? (
                       <div className="space-y-4">
@@ -561,8 +542,8 @@
               {/* Scheduler */}
               <div className="bg-gradient-to-br from-fuchsia-900/30 to-violet-900/30 p-5 sm:p-6 rounded-[24px] border border-fuchsia-500/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden mt-2">
                 <div className="flex bg-black/40 rounded-xl p-1 mb-5 border border-white/5 shadow-inner relative z-10">
-                  <button onClick={() => setScheduleMode('FINISH_BY')} className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-300 ${scheduleMode === 'FINISH_BY' ? 'bg-white/10 text-white border border-white/20' : 'text-purple-400/50 hover:text-white'}`}>ตั้งเวลาใช้รถ</button>
-                  <button onClick={() => setScheduleMode('START_AT')} className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-300 ${scheduleMode === 'START_AT' ? 'bg-white/10 text-white border border-white/20' : 'text-purple-400/50 hover:text-white'}`}>เริ่มชาร์จเดี๋ยวนี้</button>
+                  <button onClick={() => setScheduleMode('FINISH_BY')} className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-300 ${scheduleMode === 'FINISH_BY' ? 'bg-white/10 text-white border border-white/20' : 'text-purple-400/50 hover:text-white'}`}>Set Departure</button>
+                  <button onClick={() => setScheduleMode('START_AT')} className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-300 ${scheduleMode === 'START_AT' ? 'bg-white/10 text-white border border-white/20' : 'text-purple-400/50 hover:text-white'}`}>Charge Immediately</button>
                 </div>
                 <div className="flex flex-col gap-3 relative z-10">
                   <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
@@ -605,9 +586,9 @@
                     ))}
                   </div>
                   <div className="border-t border-white/5 border-dashed pt-4 flex justify-between items-center gap-3">
-                    <p className="text-[9px] text-emerald-400/40 text-left flex-1">* อ้างอิงราคาตู้ชาร์จ PEA VOLTA และค่าไฟบ้าน</p>
+                    <p className="text-[9px] text-emerald-400/40 text-left flex-1">* Estimated from typical charging station rates</p>
                     <button onClick={handleSaveSession} disabled={isSaving || calcDetails.error || !systemDB.user} className="px-4 py-2.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-bold uppercase rounded-lg border border-emerald-500/30 transition-all disabled:opacity-50 flex items-center gap-2">
-                      {isSaving ? 'กำลังบันทึก...' : <><SaveIcon className="w-3.5 h-3.5" /> บันทึกยอด</>}
+                      {isSaving ? 'Saving...' : <><SaveIcon className="w-3.5 h-3.5" /> Log Session</>}
                     </button>
                   </div>
                 </div>
@@ -622,11 +603,11 @@
                <div className="bg-[#120F24] border border-white/10 w-full max-w-md h-[85vh] flex flex-col rounded-[32px] overflow-hidden shadow-[0_0_80px_rgba(6,182,212,0.2)]">
                   
                   <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/5 shrink-0">
-                      <div className="flex items-center gap-2 text-cyan-400 font-bold tracking-widest uppercase"><HistoryIcon className="w-5 h-5" /> ประวัติการชาร์จ</div>
+                      <div className="flex items-center gap-2 text-cyan-400 font-bold tracking-widest uppercase"><HistoryIcon className="w-5 h-5" /> Charging History</div>
                       <div className="flex items-center gap-3">
                           {systemDB.user && !systemDB.user.isAnonymous && systemDB.storageMode === 'cloud' && (
                               <button onClick={systemDB.handleSignOut} className="text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg transition-colors font-bold uppercase tracking-widest">
-                                  ออกจากระบบ
+                                  Sign Out
                               </button>
                           )}
                           <button onClick={() => setShowHistory(false)} className="text-white/50 hover:text-white p-2 text-xl font-bold transition-colors">✕</button>
@@ -634,26 +615,26 @@
                   </div>
                   
                   <div className="p-6 bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border-b border-white/5 text-center relative shrink-0">
-                      <div className="text-[10px] text-emerald-400/70 font-bold uppercase tracking-widest mb-2 relative z-10">ยอดใช้จ่ายสะสมทั้งหมด</div>
+                      <div className="text-[10px] text-emerald-400/70 font-bold uppercase tracking-widest mb-2 relative z-10">Total Accumulated cost</div>
                       <div className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-emerald-400 font-mono relative z-10 drop-shadow-md">
                           <span className="text-2xl mr-1 text-emerald-500/70">฿</span>
                           {systemDB.history.reduce((sum, item) => sum + (Number(item.cost)||0), 0).toFixed(2)}
                       </div>
                   </div>
 
-                  {/* คำเตือนเรื่องที่เก็บข้อมูล */}
+                  {/* Connection Warning Header */}
                   {systemDB.storageMode === 'local' ? (
                     <div className="bg-gradient-to-r from-orange-900/40 to-red-900/40 border-b border-orange-500/20 p-4 shrink-0">
                       <div className="flex items-start gap-3">
                         <ShieldAlert className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
                         <div className="flex-1">
-                          <p className="text-[11px] text-orange-200/90 leading-relaxed mb-1"><strong>โหมดบันทึกลงเครื่อง (Local Storage)</strong></p>
+                          <p className="text-[11px] text-orange-200/90 leading-relaxed mb-1"><strong>Local Storage Mode</strong></p>
                           <p className="text-[10px] text-orange-200/70 leading-relaxed">
-                            {systemDB.authError ? systemDB.authError : 'ข้อมูลถูกเก็บไว้ในเบราว์เซอร์นี้ หากล้างแคชหรือเปลี่ยนเครื่อง ข้อมูลจะสูญหาย (กรุณาใส่ Firebase Config เพื่อใช้ Cloud)'}
+                            {systemDB.authError ? systemDB.authError : 'History is saved on this browser. If you clear data or switch devices, progress is lost.'}
                           </p>
                           {auth && (
                              <button onClick={systemDB.handleGoogleSignIn} disabled={systemDB.isAuthLoading} className="w-full mt-2 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50">
-                               <GoogleIcon className="w-4 h-4" /> {systemDB.isAuthLoading ? 'กำลังเชื่อมต่อ...' : 'หรือ ข้ามไปล็อกอินด้วย Google เลย'}
+                               <GoogleIcon className="w-4 h-4" /> {systemDB.isAuthLoading ? 'Connecting...' : 'Or Sign-In with Google'}
                              </button>
                           )}
                         </div>
@@ -664,9 +645,9 @@
                       <div className="flex items-start gap-3">
                         <ShieldAlert className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
                         <div className="flex-1">
-                          <p className="text-[11px] text-blue-200/90 leading-relaxed mb-3"><strong>บัญชีชั่วคราวบน Cloud</strong> ข้อมูลอาจสูญหายหากคุณเปลี่ยนเบราว์เซอร์ แนะนำให้ผูกบัญชี Google เพื่อเก็บข้อมูลถาวร</p>
+                          <p className="text-[11px] text-blue-200/90 leading-relaxed mb-3"><strong>Anonymous Cloud Session</strong>. Bind your Google account to secure transaction logs permanently across multiple devices.</p>
                           <button onClick={systemDB.handleGoogleSignIn} disabled={systemDB.isAuthLoading} className="w-full py-2.5 bg-white hover:bg-gray-100 text-black rounded-lg text-[11px] font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50">
-                            <GoogleIcon className="w-4 h-4" /> {systemDB.isAuthLoading ? 'กำลังเชื่อมต่อ...' : 'ผูกบัญชีด้วย Google'}
+                            <GoogleIcon className="w-4 h-4" /> {systemDB.isAuthLoading ? 'Linking...' : 'Secure with Google'}
                           </button>
                         </div>
                       </div>
@@ -675,11 +656,11 @@
 
                   <div className="flex-1 overflow-y-auto p-4 history-scroll relative">
                       {!systemDB.isReady ? (
-                          <div className="text-center text-white/50 py-10 text-sm">กำลังโหลดข้อมูล...</div>
+                          <div className="text-center text-white/50 py-10 text-sm">Loading records...</div>
                       ) : groupedHistory.length === 0 ? (
                           <div className="text-center flex flex-col items-center justify-center h-full text-white/30 space-y-2 py-10">
                              <Wallet className="w-10 h-10 mb-2 opacity-20" />
-                             <span className="text-sm font-bold uppercase tracking-widest">ยังไม่มีประวัติการชาร์จ</span>
+                             <span className="text-sm font-bold uppercase tracking-widest">No logs yet</span>
                           </div>
                       ) : (
                           groupedHistory.map((group, gIdx) => (
@@ -688,7 +669,7 @@
                                   <div className="flex justify-between items-end mb-3 px-2 border-b border-white/10 pb-2 sticky top-0 bg-[#120F24]/90 backdrop-blur-md z-20 pt-2 -mt-2">
                                       <h3 className="text-xs font-bold text-cyan-300 uppercase tracking-widest">{group.label}</h3>
                                       <div className="flex flex-col items-end">
-                                          <span className="text-[9px] text-white/40 font-bold uppercase tracking-widest">ยอดรวมเดือนนี้</span>
+                                          <span className="text-[9px] text-white/40 font-bold uppercase tracking-widest">monthly total</span>
                                           <span className="text-sm font-black font-mono text-emerald-400">฿{group.total.toFixed(2)}</span>
                                       </div>
                                   </div>
@@ -696,11 +677,26 @@
                                   {/* Items in Month */}
                                   <div className="space-y-3">
                                       {group.items.map(item => (
-                                          <div key={item.id} className="bg-black/40 border border-white/5 rounded-2xl p-4 relative group hover:bg-white/5 transition-colors">
+                                          <div 
+                                              key={item.id} 
+                                              onClick={() => {
+                                                // Tap once to toggle focus/selection
+                                                if (activeItemId === item.id) {
+                                                  setActiveItemId(null);
+                                                } else {
+                                                  setActiveItemId(item.id);
+                                                }
+                                              }}
+                                              className={`border rounded-2xl p-4 relative transition-all duration-300 cursor-pointer ${
+                                                activeItemId === item.id 
+                                                  ? 'bg-white/5 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.15)]' 
+                                                  : 'bg-black/40 border-white/5 hover:border-white/10'
+                                              }`}
+                                          >
                                               <div className="flex justify-between items-start mb-3">
                                                   <div>
                                                       <div className="text-[10px] text-white/40 font-bold tracking-widest mb-1.5 uppercase">
-                                                          {new Date(item.timestamp).toLocaleDateString('th-TH', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} น.
+                                                          {new Date(item.timestamp).toLocaleDateString('en-US', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}
                                                       </div>
                                                       <div className="flex items-center gap-2">
                                                           <span className={`text-[10px] px-2 py-0.5 rounded font-black tracking-widest ${item.chargerType==='DC'?'bg-cyan-500/20 text-cyan-300 border border-cyan-500/20':'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/20'}`}>
@@ -711,7 +707,7 @@
                                                   </div>
                                                   <div className="text-right pl-2">
                                                       {editingId === item.id ? (
-                                                          <div className="flex items-center justify-end gap-1">
+                                                          <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                                                               <span className="text-emerald-500/70 font-mono mt-1 text-sm">฿</span>
                                                               <input 
                                                                   type="number" 
@@ -735,19 +731,26 @@
                                                   </div>
                                               </div>
                                               {editingId === item.id ? (
-                                                  <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-white/5">
-                                                      <button onClick={() => { setEditingId(null); setEditCost(""); }} className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white/70 rounded-lg transition-all text-[10px] font-bold uppercase tracking-widest flex items-center gap-1"><XIcon className="w-3.5 h-3.5" /> ยกเลิก</button>
+                                                  <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-white/5" onClick={(e) => e.stopPropagation()}>
+                                                      <button onClick={() => { setEditingId(null); setEditCost(""); }} className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white/70 rounded-lg transition-all text-[10px] font-bold uppercase tracking-widest flex items-center gap-1"><XIcon className="w-3.5 h-3.5" /> Cancel</button>
                                                       <button onClick={async () => {
                                                         if(isUpdating) return; setIsUpdating(true);
                                                         await systemDB.updateRecord(item.id, Number(editCost) || 0);
                                                         setEditingId(null); setIsUpdating(false);
-                                                      }} disabled={isUpdating} className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg border border-emerald-500/30 transition-all text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 disabled:opacity-50"><CheckIcon className="w-3.5 h-3.5" /> บันทึก</button>
+                                                      }} disabled={isUpdating} className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg border border-emerald-500/30 transition-all text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 disabled:opacity-50"><CheckIcon className="w-3.5 h-3.5" /> Save</button>
                                                   </div>
                                               ) : (
-                                                  <div className="absolute bottom-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                                                      <button onClick={() => { setEditingId(item.id); setEditCost(Number(item.cost).toFixed(2)); }} className="p-1.5 text-blue-400/50 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all" title="แก้ไขค่าไฟ"><EditIcon className="w-4 h-4" /></button>
-                                                      <button onClick={() => systemDB.deleteRecord(item.id)} className="p-1.5 text-rose-500/50 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all" title="ลบประวัติ"><TrashIcon className="w-4 h-4" /></button>
-                                                  </div>
+                                                  /* Only display Action Buttons if this card is currently selected/active */
+                                                  activeItemId === item.id && (
+                                                      <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-white/5" onClick={(e) => e.stopPropagation()}>
+                                                          <button onClick={() => { setEditingId(item.id); setEditCost(Number(item.cost).toFixed(2)); }} className="p-1.5 text-blue-400/80 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider" title="Edit cost">
+                                                              <EditIcon className="w-4 h-4" /> Edit
+                                                          </button>
+                                                          <button onClick={() => { systemDB.deleteRecord(item.id); setActiveItemId(null); }} className="p-1.5 text-rose-500/80 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider" title="Delete record">
+                                                              <TrashIcon className="w-4 h-4" /> Delete
+                                                          </button>
+                                                      </div>
+                                                  )
                                               )}
                                           </div>
                                       ))}
