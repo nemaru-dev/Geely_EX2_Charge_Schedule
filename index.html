@@ -32,7 +32,7 @@
 
   <script id="jsx-source" type="text/plain">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, linkWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, linkWithPopup, onAuthStateChanged, signOut, signInWithCredential } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // =====================================================================
@@ -125,20 +125,7 @@
                setAuthError(null);
            } else {
                try { 
-                   await signInAnonymously(auth); 
-               } catch (error) { 
-                   if (error.code === 'auth/admin-restricted-operation') {
-                       setAuthError('คุณยังไม่ได้เปิดใช้งานบัญชีชั่วคราว (Anonymous) ใน Firebase Authentication');
-                   } else {
-                       setAuthError(error.message);
-                   }
-                   loadLocalData(); 
-               }
-           }
-        });
-        return () => unsubscribe();
-      }, []);
-
+      // Effect: Cloud Data Subscription
       useEffect(() => {
         if (storageMode !== 'cloud' || !user || !db || user.uid === 'local_user') return;
         const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
@@ -146,10 +133,10 @@
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.timestamp - a.timestamp);
           setHistory(data);
-          setIsReady(true);
+          setIsReady(true); // ข้อมูลโหลดเสร็จ
         }, (error) => {
           if (error.code === 'permission-denied') {
-              console.warn("Firestore access denied. Falling back to local storage.");
+              console.warn("Firestore Permission Denied. Falling back to local storage.");
               setAuthError('คุณยังไม่ได้ปลดล็อกสิทธิ์ Firestore กรุณาไปที่ Firebase Console > Firestore > Rules และเปลี่ยนเป็น allow read, write: if request.auth != null;');
               loadLocalData();
           } else {
@@ -160,6 +147,7 @@
         return () => unsubscribe();
       }, [user, storageMode]);
 
+      // Method: Google Login
       const handleGoogleSignIn = async () => {
         if (!auth) return;
         setIsAuthLoading(true);
@@ -172,7 +160,18 @@
           }
         } catch (error) {
           if (error.code === 'auth/credential-already-in-use') {
-             await signInWithPopup(auth, provider);
+             // ⚡ Silent SignIn Fix: Extract credential and sign in immediately without opening another popup
+             const credential = GoogleAuthProvider.credentialFromError(error);
+             if (credential) {
+                 try {
+                     await signInWithCredential(auth, credential);
+                 } catch (signInError) {
+                     console.error("Silent Sign-in Error", signInError);
+                     alert("ไม่สามารถล็อกอินได้: " + signInError.message);
+                 }
+             } else {
+                 await signInWithPopup(auth, provider);
+             }
           } else if (error.code === 'auth/unauthorized-domain') {
              alert("โดเมนนี้ยังไม่ได้รับอนุญาตให้ล็อกอินครับ!\n\nวิธีแก้:\n1. ไปที่ Firebase Console > Authentication\n2. เลือกแท็บ Settings > Authorized domains\n3. กด Add domain แล้วเพิ่มโดเมนที่คุณใช้อยู่ (เช่น googleusercontent.com หรือ localhost) ลงไปครับ");
           } else {
@@ -184,17 +183,18 @@
         }
       };
 
+      // Method: Sign Out
       const handleSignOut = async () => {
         if (!auth) return;
         try {
           await signOut(auth);
-          // UI will automatically react to onAuthStateChanged -> u is null -> signs in anonymously -> gets a new clean slate.
-          setHistory([]);
+          setHistory([]); // เคลียร์ประวัติทันทีเมื่อออก
         } catch (error) {
           console.error("Sign Out Error", error);
         }
       };
 
+      // Methods: CRUD
       const addRecord = async (record) => {
         const newRecordWithId = { id: Date.now().toString(), ...record };
         if (storageMode === 'cloud' && db && user && user.uid !== 'local_user') {
@@ -236,7 +236,8 @@
            try { 
                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', id), { cost: newCost }); 
            } catch(error) { 
-               console.error(error); 
+               if (error.code === 'permission-denied') alert('อัปเดตข้อมูลไม่ได้ เพราะติดสิทธิ์ Firestore Rules');
+               else console.error(error); 
            }
         } else {
            const updated = history.map(item => item.id === id ? { ...item, cost: newCost } : item);
@@ -248,8 +249,7 @@
       return { user, history, isReady, storageMode, isAuthLoading, authError, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord };
     }
 
-    function useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit) {
-      return useMemo(() => {
+    // 2. Hook สำหรับแยกการคำนวณแบตเตอรี่ (Business Logic)
         let currentStationPower = chargerType === 'DC' ? Number(dcPower) || 0 : Number(acPower) || 0;
         if (chargerType === 'AC' && acInputMode === 'A') { currentStationPower = (acAmps * 230) / 1000; }
 
@@ -599,28 +599,28 @@
               </div>
 
             </div>
-          </div>
-
-          {}
+          {/* Modal Overlay (History) */}
           {showHistory && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md transition-all">
                <div className="bg-[#120F24] border border-white/10 w-full max-w-md h-[85vh] flex flex-col rounded-[32px] overflow-hidden shadow-[0_0_80px_rgba(6,182,212,0.2)]">
                   
-                  <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/5 shrink-0">
-                      <div className="flex items-center gap-2 text-cyan-400 font-bold tracking-widest uppercase"><HistoryIcon className="w-5 h-5" /> ประวัติการชาร์จ</div>
-                      <div className="flex items-center gap-3">
-                          {systemDB.user && !systemDB.user.isAnonymous && systemDB.storageMode === 'cloud' && (
-                              <div className="flex items-center gap-2">
-                                  <span className="text-[10px] text-emerald-400/80 font-mono tracking-wider bg-emerald-900/30 px-2 py-1 rounded-md border border-emerald-500/20 max-w-[120px] truncate" title={systemDB.user.email}>
-                                      {systemDB.user.email}
-                                  </span>
-                                  <button onClick={systemDB.handleSignOut} className="text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg transition-colors font-bold uppercase tracking-widest">
-                                      ออกจากระบบ
-                                  </button>
-                              </div>
-                          )}
+                  {/* ⚡ Layout Fix: Moved user info to a dedicated new line to prevent text cutoff */}
+                  <div className="p-4 border-b border-white/5 bg-white/5 shrink-0 flex flex-col gap-3">
+                      <div className="flex justify-between items-center w-full">
+                          <div className="flex items-center gap-2 text-cyan-400 font-bold tracking-widest uppercase"><HistoryIcon className="w-5 h-5" /> ประวัติการชาร์จ</div>
                           <button onClick={() => setShowHistory(false)} className="text-white/50 hover:text-white p-2 text-xl font-bold transition-colors">✕</button>
                       </div>
+                      
+                      {systemDB.user && !systemDB.user.isAnonymous && systemDB.storageMode === 'cloud' && (
+                          <div className="flex items-center justify-between bg-emerald-900/20 p-2.5 rounded-xl border border-emerald-500/20">
+                              <span className="text-xs text-emerald-400 font-mono tracking-wider break-all mr-3" title={systemDB.user.email}>
+                                  {systemDB.user.email}
+                              </span>
+                              <button onClick={systemDB.handleSignOut} className="shrink-0 text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg transition-colors font-bold uppercase tracking-widest">
+                                  ออกจากระบบ
+                              </button>
+                          </div>
+                      )}
                   </div>
                   
                   <div className="p-6 bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border-b border-white/5 text-center relative shrink-0">
