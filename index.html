@@ -125,6 +125,20 @@
                setAuthError(null);
            } else {
                try { 
+                   await signInAnonymously(auth); 
+               } catch (error) { 
+                   if (error.code === 'auth/admin-restricted-operation') {
+                       setAuthError('คุณยังไม่ได้เปิดใช้งานบัญชีชั่วคราว (Anonymous) ใน Firebase Authentication');
+                   } else {
+                       setAuthError(error.message);
+                   }
+                   loadLocalData(); 
+               }
+           }
+        });
+        return () => unsubscribe();
+      }, []);
+
       // Effect: Cloud Data Subscription
       useEffect(() => {
         if (storageMode !== 'cloud' || !user || !db || user.uid === 'local_user') return;
