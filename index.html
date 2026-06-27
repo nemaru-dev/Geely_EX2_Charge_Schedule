@@ -610,9 +610,14 @@
                       <div className="flex items-center gap-2 text-cyan-400 font-bold tracking-widest uppercase"><HistoryIcon className="w-5 h-5" /> ประวัติการชาร์จ</div>
                       <div className="flex items-center gap-3">
                           {systemDB.user && !systemDB.user.isAnonymous && systemDB.storageMode === 'cloud' && (
-                              <button onClick={systemDB.handleSignOut} className="text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg transition-colors font-bold uppercase tracking-widest">
-                                  ออกจากระบบ
-                              </button>
+                              <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-emerald-400/80 font-mono tracking-wider bg-emerald-900/30 px-2 py-1 rounded-md border border-emerald-500/20 max-w-[120px] truncate" title={systemDB.user.email}>
+                                      {systemDB.user.email}
+                                  </span>
+                                  <button onClick={systemDB.handleSignOut} className="text-[10px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 px-3 py-1.5 rounded-lg transition-colors font-bold uppercase tracking-widest">
+                                      ออกจากระบบ
+                                  </button>
+                              </div>
                           )}
                           <button onClick={() => setShowHistory(false)} className="text-white/50 hover:text-white p-2 text-xl font-bold transition-colors">✕</button>
                       </div>
