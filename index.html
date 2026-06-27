@@ -264,6 +264,8 @@
     }
 
     // 2. Hook สำหรับแยกการคำนวณแบตเตอรี่ (Business Logic)
+    function useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit) {
+      return useMemo(() => {
         let currentStationPower = chargerType === 'DC' ? Number(dcPower) || 0 : Number(acPower) || 0;
         if (chargerType === 'AC' && acInputMode === 'A') { currentStationPower = (acAmps * 230) / 1000; }
 
