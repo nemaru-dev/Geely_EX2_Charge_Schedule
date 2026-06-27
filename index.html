@@ -129,8 +129,6 @@
                } catch (error) { 
                    if (error.code === 'auth/admin-restricted-operation') {
                        setAuthError('คุณยังไม่ได้เปิดใช้งานบัญชีชั่วคราว (Anonymous) ใน Firebase Authentication');
-                   } else if (error.message && error.message.includes('requests-from-referer')) {
-                       setAuthError('โดเมน Preview นี้ถูกบล็อกโดยระบบรักษาความปลอดภัยของ API Key ที่คุณตั้งไว้ (ให้นำโค้ดไปรันบนเว็บ GitHub ของคุณแทน)');
                    } else {
                        setAuthError(error.message);
                    }
@@ -166,13 +164,6 @@
       // Method: Google Login
       const handleGoogleSignIn = async () => {
         if (!auth) return;
-        
-        // ⚡ ตรวจจับสภาพแวดล้อม (Iframe/Canvas Detector)
-        const isIframe = window.self !== window.top;
-        if (isIframe) {
-            alert("⚠️ คำเตือน: คุณกำลังรันระบบในหน้าต่างจำลอง (Iframe)\n\nเบราว์เซอร์จะบล็อก Google Login เพื่อความปลอดภัย (นี่คือเหตุผลที่มันไม่เวิร์คในหน้านี้)\n\n👉 วิธีทดสอบที่ถูกต้อง: บันทึกไฟล์นี้ลงคอมพิวเตอร์ หรืออัปโหลดขึ้น GitHub แล้วเปิดใช้งานบนเบราว์เซอร์โดยตรงครับ");
-        }
-
         setIsAuthLoading(true);
         const provider = new GoogleAuthProvider();
         try {
@@ -183,6 +174,7 @@
           }
         } catch (error) {
           if (error.code === 'auth/credential-already-in-use') {
+             // ⚡ Silent SignIn Fix: Extract credential and sign in immediately without opening another popup
              const credential = GoogleAuthProvider.credentialFromError(error);
              if (credential) {
                  try {
@@ -195,11 +187,7 @@
                  await signInWithPopup(auth, provider);
              }
           } else if (error.code === 'auth/unauthorized-domain') {
-             alert("❌ โดเมนนี้ยังไม่ได้รับอนุญาตให้ล็อกอิน!\n\nวิธีแก้ (ใน Firebase Console):\n1. ไปที่ Authentication -> Settings -> Authorized domains\n2. กด Add domain แล้วเพิ่มโดเมนที่คุณเปิดอยู่ (เช่น localhost, 127.0.0.1 หรือ github.io) ลงไปครับ");
-          } else if (error.message && error.message.includes('requests-from-referer')) {
-             alert("❌ ถูกบล็อกโดยระบบรักษาความปลอดภัยของ Google Cloud (API Key Restriction)!\n\nเนื่องจากหน้าต่าง Preview นี้ไม่อยู่ในรายชื่อเว็บไซต์ที่คุณตั้งค่าอนุญาตไว้ (HTTP referrers)\n\n👉 วิธีแก้: ไม่ต้องแก้โค้ดใดๆ ครับ! เพียงแค่นำไฟล์นี้ไปรันบน GitHub Pages ของคุณ มันจะสามารถเข้าใช้งานได้ตามปกติทันที");
-          } else if (error.code === 'auth/popup-closed-by-user') {
-             console.warn("Popup ปิดไปก่อนที่จะล็อกอินเสร็จ");
+             alert("โดเมนนี้ยังไม่ได้รับอนุญาตให้ล็อกอินครับ!\n\nวิธีแก้:\n1. ไปที่ Firebase Console > Authentication\n2. เลือกแท็บ Settings > Authorized domains\n3. กด Add domain แล้วเพิ่มโดเมนที่คุณใช้อยู่ (เช่น googleusercontent.com หรือ localhost) ลงไปครับ");
           } else {
              console.error("Google Auth Error", error);
              alert("ไม่สามารถล็อกอินได้: " + error.message);
@@ -627,7 +615,7 @@
               </div>
 
             </div>
-          </div>
+          </div> {/* <-- จุดที่ปิดแท็กหายไปเมื่อสักครู่ ถูกเพิ่มกลับมาแล้วครับ --> */}
 
           {/* Modal Overlay (History) */}
           {showHistory && (
@@ -661,7 +649,6 @@
                       </div>
                   </div>
 
-                  {/* คำเตือนเรื่องที่เก็บข้อมูล */}
                   {systemDB.storageMode === 'local' ? (
                     <div className="bg-gradient-to-r from-orange-900/40 to-red-900/40 border-b border-orange-500/20 p-4 shrink-0">
                       <div className="flex items-start gap-3">
