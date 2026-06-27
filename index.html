@@ -353,6 +353,7 @@
       return <canvas ref={canvasRef} className="w-full max-w-[320px] aspect-[2/1] drop-shadow-2xl z-10" />;
     });
 
+
     function App() {
       // Data Layer
       const systemDB = useSystemData();
@@ -364,7 +365,6 @@
       const [editCost, setEditCost] = useState("");
       const [isUpdating, setIsUpdating] = useState(false);
       
-      // State for Tap-to-focus
       const [activeItemId, setActiveItemId] = useState(null);
 
       const [currentSoC, setCurrentSoC] = useState(30);
@@ -615,8 +615,6 @@
               </div>
 
             </div>
-          </div> {/* <-- จุดที่ปิดแท็กหายไปเมื่อสักครู่ ถูกเพิ่มกลับมาแล้วครับ --> */}
-
           {/* Modal Overlay (History) */}
           {showHistory && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md transition-all">
