@@ -383,7 +383,7 @@
           <div className="bg-[#18152e] border border-white/10 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl p-6 text-center">
             <h4 className="text-lg font-black text-rose-400 mb-2">{alertData.title}</h4>
             <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed mb-6">{alertData.message}</p>
-            <button onClick={onClose} className="w-full py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold rounded-xl text-sm transition-transform active:scale-95 shadow-md">
+            <button onClick={() => onClose()} className="w-full py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold rounded-xl text-sm transition-transform active:scale-95 shadow-md">
               ตกลง
             </button>
           </div>
@@ -409,7 +409,6 @@
       const [activeItemId, setActiveItemId] = useState(null);
       const [historyTab, setHistoryTab] = useState("records"); // 'records' | 'summary'
       
-      // ⚡ New state: Track which month is expanded in Tab 2
       const [expandedMonthKey, setExpandedMonthKey] = useState(null);
 
       const [currentSoC, setCurrentSoC] = useState(30);
@@ -447,7 +446,6 @@
           groups[sortKey].items.push(item);
           groups[sortKey].total += Number(item.cost) || 0;
           
-          // Estimate kWh charged based on Cost / PricePerUnit
           const unitPrice = Number(item.pricePerUnit) || 4.5;
           const derivedKwh = (Number(item.cost) || 0) / unitPrice;
           groups[sortKey].totalKwh += derivedKwh;
@@ -458,13 +456,11 @@
           .map(([key, value]) => value);
       }, [systemDB.history]);
 
-      // Calculate Current Month identifier string
       const currentMonthKey = useMemo(() => {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       }, []);
 
-      // Extract only current month group for Tab 1
       const currentMonthGroup = useMemo(() => {
         return groupedHistory.find(g => g.key === currentMonthKey);
       }, [groupedHistory, currentMonthKey]);
@@ -518,7 +514,6 @@
         ? [ {label: 'บ้าน Off-Peak', val: 2.6}, {label: 'ไฟบ้านปกติ', val: 4.5}, {label: 'บ้าน On-Peak', val: 5.8}, {label: 'AC สาธารณะ', val: 5.9} ]
         : [ {label: 'PEA Fast (Off)', val: 5.9}, {label: 'PEA Fast (Peak)', val: 6.9}, {label: 'PTT / EA', val: 7.5}, {label: 'PEA Ultra', val: 7.9} ];
 
-      // Shared detail card renderer for listing items under each month
       const renderItemRow = (item) => {
         const isEditing = editingId === item.id;
         const isFocused = activeItemId === item.id;
@@ -527,7 +522,7 @@
           <div 
               key={item.id} 
               onClick={() => {
-                if (isEditing) return; // Prevent focus collapse while writing values
+                if (isEditing) return; 
                 if (isFocused) setActiveItemId(null);
                 else setActiveItemId(item.id);
               }}
@@ -541,7 +536,6 @@
                   <div className="space-y-4 pt-1" onClick={(e) => e.stopPropagation()}>
                       <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-widest mb-2 border-b border-white/5 pb-2">แก้ไขรายการชาร์จ</h4>
                       
-                      {/* 1. Date & Time Input (Datetime-local) */}
                       <div>
                           <label className="block text-[10px] text-white/40 font-bold mb-1.5 uppercase tracking-wider">วันและเวลาที่ชาร์จ</label>
                           <input 
@@ -552,7 +546,6 @@
                           />
                       </div>
                       
-                      {/* 2. Charge Cost Input (Baht) */}
                       <div>
                           <label className="block text-[10px] text-white/40 font-bold mb-1.5 uppercase tracking-wider">ค่าไฟ (บาท)</label>
                           <div className="flex items-center gap-2">
@@ -574,7 +567,6 @@
                           </div>
                       </div>
                       
-                      {/* Edit Actions Buttons */}
                       <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-white/5">
                           <button onClick={() => { setEditingId(null); setEditCost(""); setEditDateTime(""); }} className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white/70 rounded-lg transition-all text-[10px] font-bold uppercase tracking-widest flex items-center gap-1"><XIcon className="w-3.5 h-3.5" /> ยกเลิก</button>
                           <button onClick={async () => {
@@ -589,7 +581,6 @@
                       </div>
                   </div>
               ) : (
-                  /* Standard View Area */
                   <>
                       <div className="flex justify-between items-start mb-3">
                           <div>
@@ -637,8 +628,7 @@
 
       return (
         <div className="min-h-screen flex items-center justify-center p-4 font-sans bg-[#0B0A1A] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-fuchsia-900/40 via-[#0B0A1A] to-cyan-900/30">
-          {/* Custom Dialog alert component inside App */}
-          <AppAlert />
+          <AppAlertModal alertData={appAlert} onClose={() => setAppAlert(null)} />
           
           <div className="bg-[#120F24]/60 backdrop-blur-3xl w-full max-w-md rounded-[32px] shadow-[0_0_80px_-20px_rgba(236,72,153,0.3)] border border-white/10 overflow-hidden relative">
             <div className="absolute top-0 right-0 w-64 h-64 bg-fuchsia-500/10 rounded-full blur-[80px] pointer-events-none"></div>
@@ -701,13 +691,13 @@
             <div className="p-6 bg-black/20 space-y-7 border-t border-white/5 relative z-10">
               <div className="space-y-6">
                 <div>
-                  <label className="flex justify-between text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
+                  <label className="flex justify-between items-center text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
                     <span>แบตเตอรี่ปัจจุบัน</span><span className="text-cyan-400 font-black bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">{currentSoC}%</span>
                   </label>
                   <input type="range" min="0" max="100" step="1" value={currentSoC} onChange={(e) => setCurrentSoC(Number(e.target.value))} className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(34,211,238,0.6)] [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]" style={{ background: `linear-gradient(to right, #22d3ee ${currentSoC}%, rgba(255,255,255,0.05) ${currentSoC}%)` }} />
                 </div>
                 <div>
-                  <label className="flex justify-between text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
+                  <label className="flex justify-between items-center text-xs font-bold text-purple-200 mb-3 uppercase tracking-wider">
                     <span>เป้าหมายการชาร์จ</span><span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2 py-0.5 rounded border border-fuchsia-500/20">{targetSoC}%</span>
                   </label>
                   <input type="range" min="0" max="100" step="1" value={targetSoC} onChange={(e) => setTargetSoC(Number(e.target.value))} className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-fuchsia-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(217,70,239,0.6)] [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]" style={{ background: `linear-gradient(to right, #d946ef ${targetSoC}%, rgba(255,255,255,0.05) ${targetSoC}%)` }} />
@@ -727,23 +717,54 @@
                       <button onClick={() => setAcInputMode('kW')} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${acInputMode === 'kW' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'}`}>ตู้ชาร์จ (kW)</button>
                       <button onClick={() => setAcInputMode('A')} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${acInputMode === 'A' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'}`}>สายพกพา (Amps)</button>
                     </div>
+                    
+                    {/* ⚡ Modified: All AC control modes now display continuous sliders WITH active numbers & presets */}
                     {acInputMode === 'A' ? (
                       <div className="space-y-4">
-                        <div className="flex gap-2">{[8, 10, 13, 16, 32].map((preset) => (<button key={preset} onClick={() => setAcAmps(preset)} className={`flex-1 py-2.5 text-xs font-black rounded-lg border transition-all ${acAmps === preset ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-300 shadow-[0_0_15px_rgba(217,70,239,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}>{preset}A</button>))}</div>
+                        <div className="flex justify-between items-center text-xs font-bold text-purple-200">
+                          <span>กระแสชาร์จสายพกพา</span>
+                          <span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2.5 py-0.5 rounded border border-fuchsia-500/20 shadow-[0_0_10px_rgba(217,70,239,0.15)]">{acAmps}A</span>
+                        </div>
+                        <div className="flex gap-2">
+                          {[8, 10, 13, 16, 32].map((preset) => (
+                            <button key={preset} onClick={() => setAcAmps(preset)} className={`flex-1 py-2.5 text-xs font-black rounded-lg border transition-all ${acAmps === preset ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-300 shadow-[0_0_15px_rgba(217,70,239,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}>{preset}A</button>
+                          ))}
+                        </div>
                         <div>
                           <input type="range" min="6" max="32" step="1" value={acAmps} onChange={(e) => setAcAmps(Number(e.target.value))} className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-fuchsia-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]" style={{ background: `linear-gradient(to right, #d946ef ${((acAmps - 6) / 26) * 100}%, rgba(255,255,255,0.05) ${((acAmps - 6) / 26) * 100}%)` }} />
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-4 gap-2 mb-3">
-                        {[3.3, 7, 11, 22].map((preset) => (<button key={preset} onClick={() => setAcPower(preset)} className={`py-3 text-sm font-black rounded-lg border transition-all ${acPower === preset ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}>{preset}</button>))}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center text-xs font-bold text-purple-200">
+                          <span>กำลังไฟชาร์จ AC</span>
+                          <span className="text-cyan-400 font-black bg-cyan-500/10 px-2.5 py-0.5 rounded border border-cyan-500/20 shadow-[0_0_10px_rgba(34,211,238,0.15)]">{acPower.toFixed(1)} kW</span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-2 mb-1">
+                          {[3.3, 7.0, 11.0, 22.0].map((preset) => (
+                            <button key={preset} onClick={() => setAcPower(preset)} className={`py-2 px-1 text-xs font-black rounded-lg border transition-all ${acPower === preset ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}>{preset.toFixed(1)}</button>
+                          ))}
+                        </div>
+                        <div>
+                          <input type="range" min="1.0" max="22.0" step="0.1" value={acPower} onChange={(e) => setAcPower(Number(e.target.value))} className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]" style={{ background: `linear-gradient(to right, #22d3ee ${((acPower - 1.0) / 21.0) * 100}%, rgba(255,255,255,0.05) ${((acPower - 1.0) / 21.0) * 100}%)` }} />
+                        </div>
                       </div>
                     )}
                   </>
                 ) : (
-                  <div>
-                    <div className="grid grid-cols-4 gap-2 mb-3">
-                      {[25, 50, 120, 360].map((preset) => (<button key={preset} onClick={() => setDcPower(preset)} className={`py-3 text-sm font-black rounded-lg border transition-all ${dcPower === preset ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}>{preset}</button>))}
+                  /* ⚡ Modified: DC charger selection now features continuous slider WITH active numbers & presets */
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center text-xs font-bold text-purple-200">
+                      <span>กำลังไฟตู้ชาร์จ DC</span>
+                      <span className="text-cyan-400 font-black bg-cyan-500/10 px-2.5 py-0.5 rounded border border-cyan-500/20 shadow-[0_0_10px_rgba(34,211,238,0.15)]">{dcPower} kW</span>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 mb-1">
+                      {[25, 50, 120, 360].map((preset) => (
+                        <button key={preset} onClick={() => setDcPower(preset)} className={`py-2 px-1 text-xs font-black rounded-lg border transition-all ${dcPower === preset ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}>{preset}</button>
+                      ))}
+                    </div>
+                    <div>
+                      <input type="range" min="10" max="360" step="5" value={dcPower} onChange={(e) => setDcPower(Number(e.target.value))} className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]" style={{ background: `linear-gradient(to right, #22d3ee ${((dcPower - 10) / 350) * 100}%, rgba(255,255,255,0.05) ${((dcPower - 10) / 350) * 100}%)` }} />
                     </div>
                   </div>
                 )}
@@ -787,6 +808,9 @@
                   </div>
                 </div>
                 <div className="w-full text-center border-t border-white/5 pt-5">
+                  <label className="block text-xs font-bold text-emerald-400/80 mb-2 uppercase tracking-wider">
+                    ค่าไฟ / หน่วย (บาท)
+                  </label>
                   <div className="relative max-w-[200px] mx-auto mb-4">
                     <input type="number" step="0.1" value={pricePerUnit} onChange={(e) => setPricePerUnit(e.target.value)} className="w-full bg-[#050B14] border border-white/5 text-emerald-300 rounded-xl px-4 py-3 sm:py-4 focus:outline-none font-mono text-xl font-black text-center" />
                   </div>
@@ -840,7 +864,7 @@
                       </div>
                   </div>
 
-                  {/* ⚡ Tab Switcher Panel */}
+                  {/* Tab Switcher Panel */}
                   <div className="px-4 py-3 shrink-0 bg-white/5 border-b border-white/5">
                       <div className="flex p-0.5 bg-black/40 rounded-xl">
                           <button 
@@ -892,7 +916,7 @@
                     </div>
                   ))}
 
-                  {/* ⚡ Tab-conditional Feed List Content rendering */}
+                  {/* Tab-conditional Feed List Content rendering */}
                   <div className="flex-1 overflow-y-auto p-4 history-scroll relative">
                       {!systemDB.isReady ? (
                           <div className="text-center text-white/50 py-10 text-sm">กำลังโหลดข้อมูล...</div>
@@ -921,7 +945,7 @@
                               )}
                           </div>
                       ) : (
-                          /* ⚡ Tab 2: Collapsible Monthly Summary Drill-down */
+                          /* Tab 2: Collapsible Monthly Summary Drill-down */
                           <div className="space-y-4">
                               {groupedHistory.map((group, gIdx) => {
                                   const sessionsCount = group.items.length;
@@ -935,7 +959,7 @@
                                           <div 
                                               onClick={() => {
                                                   setExpandedMonthKey(isExpanded ? null : group.key);
-                                                  setActiveItemId(null); // Clear item focus to prevent action visual overlaps
+                                                  setActiveItemId(null); 
                                               }}
                                               className="p-5 flex justify-between items-center cursor-pointer hover:bg-white/5 active:bg-white/10 transition-all border-b border-white/5"
                                           >
@@ -970,7 +994,7 @@
                                               </div>
                                           </div>
 
-                                          {/* ⚡ Expanded List View: Charging items for this specific month */}
+                                          {/* Expanded List View: Charging items for this specific month */}
                                           {isExpanded && (
                                               <div className="p-4 bg-[#0a0815]/60 space-y-3 transition-all">
                                                   <h4 className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest mb-2 px-2">รายการจดบันทึกทั้งหมดประจำเดือน</h4>
