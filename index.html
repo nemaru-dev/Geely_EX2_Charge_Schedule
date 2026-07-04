@@ -407,7 +407,7 @@
       const [editDateTime, setEditDateTime] = useState(""); 
       const [isUpdating, setIsUpdating] = useState(false);
       const [activeItemId, setActiveItemId] = useState(null);
-      const [historyTab, setHistoryTab] = useState("records"); // 'records' | 'summary'
+      const [historyTab, setHistoryTab] = useState("records"); 
       
       const [expandedMonthKey, setExpandedMonthKey] = useState(null);
 
@@ -421,6 +421,9 @@
       const [scheduleMode, setScheduleMode] = useState('FINISH_BY'); 
       const [targetTime, setTargetTime] = useState('06:30'); 
       const [userStartTime, setUserStartTime] = useState(new Date().toTimeString().slice(0, 5)); 
+      
+      // ⚡ TOU Mode State: 'PEAK' (On-Peak) | 'OFF_PEAK' (Off-Peak)
+      const [peakMode, setPeakMode] = useState('PEAK');
       const [pricePerUnit, setPricePerUnit] = useState(4.5);
 
       // Derived Logic
@@ -510,9 +513,42 @@
         }
       }, [calcDetails, targetTime, userStartTime, scheduleMode, targetSoC]);
 
-      const pricePresets = chargerType === 'AC' 
-        ? [ {label: 'บ้าน Off-Peak', val: 2.6}, {label: 'ไฟบ้านปกติ', val: 4.5}, {label: 'บ้าน On-Peak', val: 5.8}, {label: 'AC สาธารณะ', val: 5.9} ]
-        : [ {label: 'PEA Fast (Off)', val: 5.9}, {label: 'PEA Fast (Peak)', val: 6.9}, {label: 'PTT / EA', val: 7.5}, {label: 'PEA Ultra', val: 7.9} ];
+      const pricePresets = useMemo(() => {
+        if (chargerType === 'AC') {
+          return [
+            { label: 'บ้าน Off-Peak', val: 2.6 },
+            { label: 'ไฟบ้านปกติ', val: 4.5 },
+            { label: 'บ้าน On-Peak', val: 5.8 },
+            { label: 'AC ห้าง/พาณิชย์', val: 9.0 }
+          ];
+        } else {
+          // ⚡ Updated to exact EV Station PluZ rates (from latest regulations)
+          if (peakMode === 'PEAK') {
+            return [
+              { label: 'PluZ 40-180kW (250A)', val: 7.9 },
+              { label: 'PluZ 180-200kW (300A)', val: 8.2 },
+              { label: 'PluZ Fast/Hub', val: 8.4 },
+              { label: 'PluZ Ultra 240-480', val: 9.4 }
+            ];
+          } else {
+            return [
+              { label: 'PluZ 40-180kW (250A)', val: 6.6 },
+              { label: 'PluZ 180-200kW (300A)', val: 6.9 },
+              { label: 'PluZ Fast/Hub', val: 7.1 },
+              { label: 'PluZ Ultra 240-480', val: 8.1 }
+            ];
+          }
+        }
+      }, [chargerType, peakMode]);
+
+      // Set default preset price when changing chargers or Peak/Off-Peak modes
+      useEffect(() => {
+        if (chargerType === 'AC') {
+          setPricePerUnit(4.5);
+        } else {
+          setPricePerUnit(peakMode === 'PEAK' ? 7.9 : 6.6);
+        }
+      }, [chargerType, peakMode]);
 
       const renderItemRow = (item) => {
         const isEditing = editingId === item.id;
@@ -718,7 +754,6 @@
                       <button onClick={() => setAcInputMode('A')} className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-wider rounded-lg border transition-all ${acInputMode === 'A' ? 'bg-white/10 border-white/20 text-white' : 'bg-transparent border-white/5 text-purple-400/50 hover:bg-white/5'}`}>สายพกพา (Amps)</button>
                     </div>
                     
-                    {/* ⚡ Modified: All AC control modes now display continuous sliders WITH active numbers & presets */}
                     {acInputMode === 'A' ? (
                       <div className="space-y-4">
                         <div className="flex justify-between items-center text-xs font-bold text-purple-200">
@@ -740,8 +775,8 @@
                           <span>กำลังไฟชาร์จ AC</span>
                           <span className="text-cyan-400 font-black bg-cyan-500/10 px-2.5 py-0.5 rounded border border-cyan-500/20 shadow-[0_0_10px_rgba(34,211,238,0.15)]">{acPower.toFixed(1)} kW</span>
                         </div>
-                        <div className="grid grid-cols-4 gap-2 mb-1">
-                          {[3.3, 7.0, 11.0, 22.0].map((preset) => (
+                        <div className="grid grid-cols-3 gap-2 mb-1">
+                          {[7.0, 11.0, 22.0].map((preset) => (
                             <button key={preset} onClick={() => setAcPower(preset)} className={`py-2 px-1 text-xs font-black rounded-lg border transition-all ${acPower === preset ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}>{preset.toFixed(1)}</button>
                           ))}
                         </div>
@@ -752,17 +787,52 @@
                     )}
                   </>
                 ) : (
-                  /* ⚡ Modified: DC charger selection now features continuous slider WITH active numbers & presets */
-                  <div className="space-y-4">
+                  /* ⚡ Adjusted: DC Selection features ONLY ONE single unified Hypercharging button to avoid duplicate clutter */
+                  <div className="space-y-6">
                     <div className="flex justify-between items-center text-xs font-bold text-purple-200">
                       <span>กำลังไฟตู้ชาร์จ DC</span>
                       <span className="text-cyan-400 font-black bg-cyan-500/10 px-2.5 py-0.5 rounded border border-cyan-500/20 shadow-[0_0_10px_rgba(34,211,238,0.15)]">{dcPower} kW</span>
                     </div>
-                    <div className="grid grid-cols-4 gap-2 mb-1">
-                      {[25, 50, 120, 360].map((preset) => (
-                        <button key={preset} onClick={() => setDcPower(preset)} className={`py-2 px-1 text-xs font-black rounded-lg border transition-all ${dcPower === preset ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}>{preset}</button>
-                      ))}
+
+                    {/* Standard DC Section (2 Column Grid) */}
+                    <div>
+                      <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full"></span> Standard DC Fast Charging
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { val: 25, label: 'โชว์รูม / ดีลเลอร์', sub: '25 kW' },
+                          { val: 50, label: 'ตู้ชาร์จด่วนทั่วไป', sub: '50 kW' }
+                        ].map((preset) => (
+                          <button 
+                            key={preset.val} 
+                            onClick={() => setDcPower(preset.val)} 
+                            className={`py-2 px-1 rounded-xl border transition-all flex flex-col items-center justify-center ${dcPower === preset.val ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}
+                          >
+                            <span className="text-[10px] font-black text-center leading-tight">{preset.label}</span>
+                            <span className="text-[8px] opacity-60 font-semibold mt-0.5">{preset.sub}</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
+
+                    {/* Ultra-Fast DC Section (Single Unified Full-Width Button) */}
+                    <div>
+                      <div className="text-[10px] font-bold text-fuchsia-400 mb-2 uppercase tracking-widest flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 bg-fuchsia-400 rounded-full"></span> Ultra-Fast DC Hypercharging
+                      </div>
+                      <div className="grid grid-cols-1">
+                        <button 
+                          onClick={() => setDcPower(120)} 
+                          className={`py-3 px-3 rounded-xl border transition-all flex flex-col items-center justify-center ${dcPower >= 120 ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-300 shadow-[0_0_15px_rgba(217,70,239,0.2)] animate-pulse' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}
+                        >
+                          <span className="text-[11px] font-black text-center leading-tight">ตู้ด่วนพิเศษ (Hypercharger)</span>
+                          <span className="text-[9px] opacity-75 font-semibold mt-1">120 kW - 720 kW (รถรับไฟสูงสุดที่ 70 kW)</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Dynamic Manual Slider */}
                     <div>
                       <input type="range" min="10" max="360" step="5" value={dcPower} onChange={(e) => setDcPower(Number(e.target.value))} className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]" style={{ background: `linear-gradient(to right, #22d3ee ${((dcPower - 10) / 350) * 100}%, rgba(255,255,255,0.05) ${((dcPower - 10) / 350) * 100}%)` }} />
                     </div>
@@ -807,6 +877,7 @@
                     </span>
                   </div>
                 </div>
+                
                 <div className="w-full text-center border-t border-white/5 pt-5">
                   <label className="block text-xs font-bold text-emerald-400/80 mb-2 uppercase tracking-wider">
                     ค่าไฟ / หน่วย (บาท)
@@ -814,13 +885,39 @@
                   <div className="relative max-w-[200px] mx-auto mb-4">
                     <input type="number" step="0.1" value={pricePerUnit} onChange={(e) => setPricePerUnit(e.target.value)} className="w-full bg-[#050B14] border border-white/5 text-emerald-300 rounded-xl px-4 py-3 sm:py-4 focus:outline-none font-mono text-xl font-black text-center" />
                   </div>
-                  <div className="grid grid-cols-4 gap-2 max-w-sm mx-auto mb-5">
+
+                  {/* ⚡ Dynamic TOU Mode Selector Switch: Only visible when chargerType is DC (Optional for AC to maintain simplicity) */}
+                  {chargerType === 'DC' && (
+                    <div className="mb-4">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">ช่วงเวลาการใช้งาน (TOU Rate)</label>
+                      <div className="flex max-w-xs mx-auto bg-black/40 rounded-lg p-0.5 border border-white/5">
+                        <button 
+                          onClick={() => setPeakMode('PEAK')}
+                          className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${peakMode === 'PEAK' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/20' : 'text-slate-400 hover:text-white'}`}
+                        >
+                          ☀️ On-Peak (กลางวัน)
+                        </button>
+                        <button 
+                          onClick={() => setPeakMode('OFF_PEAK')}
+                          className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${peakMode === 'OFF_PEAK' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/20' : 'text-slate-400 hover:text-white'}`}
+                        >
+                          🌙 Off-Peak (กลางคืน/วันหยุด)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto mb-5">
                     {pricePresets.map((preset) => (
-                      <button key={preset.label} onClick={() => setPricePerUnit(preset.val)} className={`py-2 px-1 text-[8px] font-bold uppercase rounded-xl transition-all ${pricePerUnit === preset.val ? 'bg-gradient-to-b from-emerald-400 to-emerald-600 text-white' : 'bg-black/40 border border-white/5 text-emerald-400/60'}`}>{preset.label}</button>
+                      <button key={preset.label} onClick={() => setPricePerUnit(preset.val)} className={`py-2 px-1 text-[9px] leading-tight font-bold uppercase rounded-xl transition-all border ${pricePerUnit === preset.val ? 'bg-gradient-to-b from-emerald-400 to-emerald-600 border-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 text-emerald-400/60 hover:text-white'}`}>
+                        <span className="block font-black">{preset.val.toFixed(1)} ฿</span>
+                        <span className="text-[7px] opacity-65 font-medium">{preset.label}</span>
+                      </button>
                     ))}
                   </div>
+
                   <div className="border-t border-white/5 border-dashed pt-4 flex justify-between items-center gap-3">
-                    <p className="text-[9px] text-emerald-400/40 text-left flex-1">* อ้างอิงราคาตู้ชาร์จ PEA VOLTA และค่าไฟบ้าน</p>
+                    <p className="text-[9px] text-emerald-400/40 text-left flex-1">* ประมวลเรทตามจริงตามพิกัดตู้และสถานี EV Station PluZ ยุคใหม่</p>
                     <button onClick={handleSaveSession} disabled={isSaving || calcDetails.error || !systemDB.user} className="px-4 py-2.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-bold uppercase rounded-lg border border-emerald-500/30 transition-all disabled:opacity-50 flex items-center gap-2">
                       {isSaving ? 'กำลังบันทึก...' : <><SaveIcon className="w-3.5 h-3.5" /> บันทึกยอด</>}
                     </button>
@@ -1012,27 +1109,6 @@
           )}
         </div>
       );
-    }
-
-    // Custom Component for managing isolated safe modal-alerts
-    let triggerAlertGlobal = null;
-    function AppAlert() {
-        const [alertMsg, setAlertMsg] = useState(null);
-        useEffect(() => {
-            triggerAlertGlobal = (msg) => setAlertMsg(msg);
-        }, []);
-        if(!alertMsg) return null;
-        return (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm">
-                <div className="bg-[#18152e] border border-white/10 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl p-6 text-center">
-                    <h4 className="text-lg font-black text-rose-400 mb-2">แจ้งเตือนระบบ</h4>
-                    <p className="text-gray-300 text-sm whitespace-pre-wrap leading-relaxed mb-6">{alertMsg}</p>
-                    <button onClick={() => setAlertMsg(null)} className="w-full py-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 text-black font-bold rounded-xl text-sm transition-transform active:scale-95 shadow-md">
-                        ตกลง
-                    </button>
-                </div>
-            </div>
-        );
     }
 
     const root = ReactDOM.createRoot(document.getElementById('root'));
