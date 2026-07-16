@@ -67,7 +67,7 @@
       CAPACITY: 39.4,
       MAX_AC_POWER: 6.6,
       MAX_DC_POWER: 70.0,
-      AC_EFFICIENCY: 0.84,
+      AC_EFFICIENCY: 0.80, // ⚡ Calibrated from 0.84 to 0.80 based on real-world test (10A drop to 9.4A, low-current overheads)
       DC_EFFICIENCY: 0.95,
       TRICKLE_RATE: 0.35,
       COST_EFFICIENCY: 0.90,
@@ -833,7 +833,7 @@
                       <div className="grid grid-cols-1">
                         <button 
                           onClick={() => setDcPower(120)} 
-                          className={`py-3 px-3 rounded-xl border transition-all flex flex-col items-center justify-center ${dcPower >= 120 ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-300 shadow-[0_0_15px_rgba(217,70,239,0.2)] animate-pulse' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}
+                          className={`py-3 px-3 rounded-xl border transition-all flex flex-col items-center justify-center ${dcPower >= 120 ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-300 shadow-[0_0_15px_rgba(217,70,239,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}
                         >
                           <span className="text-[11px] font-black text-center leading-tight">ตู้ด่วนพิเศษ (Hypercharger)</span>
                           <span className="text-[9px] opacity-75 font-semibold mt-1">120 kW - 720 kW (รถรับไฟสูงสุดที่ 70 kW)</span>
