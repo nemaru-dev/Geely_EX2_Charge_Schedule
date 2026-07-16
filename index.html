@@ -472,6 +472,15 @@
         return new Date().toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
       }, []);
 
+      // ⚡ Added: Compute separate sums for dynamic presentation as pictured in image_9278cb.png
+      const currentMonthTotal = useMemo(() => {
+        return currentMonthGroup ? currentMonthGroup.total : 0;
+      }, [currentMonthGroup]);
+
+      const allTimeTotal = useMemo(() => {
+        return systemDB.history.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
+      }, [systemDB.history]);
+
       const handleSaveSession = async () => {
         if (!systemDB.user || calcDetails.error || isSaving) return;
         setIsSaving(true);
@@ -953,11 +962,14 @@
                   </div>
                   
                   {/* Master Accumulated Summation Card */}
+                  {/* ⚡ Modified: Displays monthly total vs all-time total dynamically depending on selected tab (image_9278cb.png) */}
                   <div className="p-6 bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border-b border-white/5 text-center relative shrink-0">
-                      <div className="text-[10px] text-emerald-400/70 font-bold uppercase tracking-widest mb-2 relative z-10">ยอดใช้จ่ายสะสมทั้งหมด</div>
+                      <div className="text-[10px] text-emerald-400/70 font-bold uppercase tracking-widest mb-2 relative z-10">
+                          {historyTab === 'records' ? 'ยอดใช้จ่ายสะสมเดือนนี้' : 'ยอดใช้จ่ายสะสมทั้งหมด'}
+                      </div>
                       <div className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-emerald-400 font-mono relative z-10 drop-shadow-md">
                           <span className="text-2xl mr-1 text-emerald-500/70">฿</span>
-                          {systemDB.history.reduce((sum, item) => sum + (Number(item.cost)||0), 0).toFixed(2)}
+                          {(historyTab === 'records' ? currentMonthTotal : allTimeTotal).toFixed(2)}
                       </div>
                   </div>
 
