@@ -1,9 +1,10 @@
+```html
 <!DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (GitHub Ready)</title>
+  <title>Geely EX2 Charging Tracker (Calibrated)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -36,7 +37,7 @@
     import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     // =====================================================================
-    // 🛑 1. นำข้อมูล Firebase Config ของคุณมาวางที่นี่ สำหรับรันบน GitHub 🛑
+    // 🛑 1. ข้อมูล Firebase Config สำหรับรันบน GitHub Pages 🛑
     // =====================================================================
     const MY_FIREBASE_CONFIG = {
       apiKey: "AIzaSyBIOOnXGxET8lN-K6h-HRX8dyfrYQlLxZc",
@@ -67,7 +68,7 @@
       CAPACITY: 39.4,
       MAX_AC_POWER: 6.6,
       MAX_DC_POWER: 70.0,
-      AC_EFFICIENCY: 0.80, // ⚡ Calibrated from 0.84 to 0.80 based on real-world test (10A drop to 9.4A, low-current overheads)
+      AC_EFFICIENCY: 0.94, // ปรับแต่งค่าฐานประสิทธิภาพของ OBC หลักเป็น 94% เพื่อจับคู่สถิติตู้
       DC_EFFICIENCY: 0.95,
       TRICKLE_RATE: 0.35,
       COST_EFFICIENCY: 0.90,
@@ -87,7 +88,8 @@
     const BarChartIcon = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>;
     const ListIcon = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>;
     const ChevronDown = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="6 9 12 15 18 9"></polyline></svg>;
-    
+    const SettingsIcon = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>;
+
     const GoogleIcon = ({className}) => (
       <svg className={className} viewBox="0 0 24 24">
         <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -151,7 +153,7 @@
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.timestamp - a.timestamp);
           setHistory(data);
-          setIsReady(true); // data loaded
+          setIsReady(true);
         }, (error) => {
           if (error.code === 'permission-denied') {
               console.warn("Firestore Permission Denied. Falling back to local storage.");
@@ -287,10 +289,22 @@
       return { user, history, isReady, storageMode, isAuthLoading, authError, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord };
     }
 
-    function useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit) {
+    // ⚡ Refined: useChargeCalculation now implements safe AC balancing curves and calibrated volt/amp metrics
+    function useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC) {
       return useMemo(() => {
-        let currentStationPower = chargerType === 'DC' ? Number(dcPower) || 0 : Number(acPower) || 0;
-        if (chargerType === 'AC' && acInputMode === 'A') { currentStationPower = (acAmps * 230) / 1000; }
+        let currentStationPower = 0;
+        
+        if (chargerType === 'AC') {
+          if (acInputMode === 'A') {
+            // 9.4A is real active draw limit for Geely EX2 on 10A setting (Safety offset factor: ~0.94)
+            const activeAmps = acAmps * 0.94;
+            currentStationPower = (activeAmps * calibVoltage) / 1000;
+          } else {
+            currentStationPower = Number(acPower) || 0;
+          }
+        } else {
+          currentStationPower = Number(dcPower) || 0;
+        }
 
         if (currentSoC >= targetSoC) return { hours: 0, minutes: 0, error: "แบตเตอรี่ถึงเป้าหมายแล้ว", actualPower: 0, bottleneck: null, cost: 0 };
         if (currentStationPower <= 0) return { hours: 0, minutes: 0, error: "ข้อมูลกำลังไฟไม่ถูกต้อง", actualPower: 0, bottleneck: null, cost: 0 };
@@ -308,7 +322,21 @@
 
         let timeInHours = 0;
         if (chargerType === 'AC') {
-          timeInHours = energyNeeded / (actualPower * EV_SPECS.AC_EFFICIENCY);
+          // Dynamic dual-phase AC charging model (Bulk + Cell Balancing)
+          const effRatio = calibOBC / 100; // OBC efficiency (default 94%)
+          
+          if (currentSoC < 90) {
+            const targetForBulk = Math.min(targetSoC, 90);
+            const energyBulk = EV_SPECS.CAPACITY * ((targetForBulk - currentSoC) / 100);
+            timeInHours += energyBulk / (actualPower * effRatio);
+          }
+          
+          if (targetSoC > 90) {
+            const startForTaper = Math.max(currentSoC, 90);
+            const energyTaper = EV_SPECS.CAPACITY * ((targetSoC - startForTaper) / 100);
+            // Constant Voltage Phase slows down charging rate to 85% during 90-100% SoC
+            timeInHours += energyTaper / (actualPower * effRatio * 0.85);
+          }
         } else {
           const effectiveDcPower = actualPower * EV_SPECS.DC_EFFICIENCY;
           if (currentSoC < 80 && targetSoC <= 80) { timeInHours = energyNeeded / effectiveDcPower; } 
@@ -331,7 +359,7 @@
           error: null, 
           cost 
         };
-      }, [currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit]);
+      }, [currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC]);
     }
 
     const GaugeCanvas = memo(({ currentSoC, targetSoC, chargerType }) => {
@@ -392,13 +420,9 @@
     };
 
     function App() {
-      // Alert Overlay State
       const [appAlert, setAppAlert] = useState(null);
-
-      // Data Layer
       const systemDB = useSystemData(setAppAlert);
       
-      // State Layer
       const [showHistory, setShowHistory] = useState(false);
       const [isSaving, setIsSaving] = useState(false);
       const [editingId, setEditingId] = useState(null);
@@ -408,26 +432,27 @@
       const [isUpdating, setIsUpdating] = useState(false);
       const [activeItemId, setActiveItemId] = useState(null);
       const [historyTab, setHistoryTab] = useState("records"); 
-      
       const [expandedMonthKey, setExpandedMonthKey] = useState(null);
 
-      const [currentSoC, setCurrentSoC] = useState(30);
-      const [targetSoC, setTargetSoC] = useState(80);
+      // ⚡ Advanced Calibration States (Hidden accordion for precision engineering)
+      const [showCalib, setShowCalib] = useState(false);
+      const [calibVoltage, setCalibVoltage] = useState(229); // Calibrated Thai local voltage (defaults to 229V from photo)
+      const [calibOBC, setCalibOBC] = useState(94); // Standard OBC efficiency (default 94%)
+
+      const [currentSoC, setCurrentSoC] = useState(62);
+      const [targetSoC, setTargetSoC] = useState(100);
       const [chargerType, setChargerType] = useState('AC');
       const [dcPower, setDcPower] = useState(120);
       const [acPower, setAcPower] = useState(7);
       const [acInputMode, setAcInputMode] = useState('A'); 
       const [acAmps, setAcAmps] = useState(10); 
-      const [scheduleMode, setScheduleMode] = useState('FINISH_BY'); 
+      const [scheduleMode, setScheduleMode] = useState('START_AT'); 
       const [targetTime, setTargetTime] = useState('06:30'); 
-      const [userStartTime, setUserStartTime] = useState(new Date().toTimeString().slice(0, 5)); 
-      
-      // ⚡ TOU Mode State: 'PEAK' (On-Peak) | 'OFF_PEAK' (Off-Peak)
-      const [peakMode, setPeakMode] = useState('PEAK');
+      const [userStartTime, setUserStartTime] = useState("23:00"); 
       const [pricePerUnit, setPricePerUnit] = useState(4.5);
 
-      // Derived Logic
-      const calcDetails = useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit);
+      // Dynamic calculation parameters
+      const calcDetails = useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC);
 
       // Group monthly transaction items
       const groupedHistory = useMemo(() => {
@@ -472,15 +497,6 @@
         return new Date().toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
       }, []);
 
-      // ⚡ Added: Compute separate sums for dynamic presentation as pictured in image_9278cb.png
-      const currentMonthTotal = useMemo(() => {
-        return currentMonthGroup ? currentMonthGroup.total : 0;
-      }, [currentMonthGroup]);
-
-      const allTimeTotal = useMemo(() => {
-        return systemDB.history.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
-      }, [systemDB.history]);
-
       const handleSaveSession = async () => {
         if (!systemDB.user || calcDetails.error || isSaving) return;
         setIsSaving(true);
@@ -522,42 +538,9 @@
         }
       }, [calcDetails, targetTime, userStartTime, scheduleMode, targetSoC]);
 
-      const pricePresets = useMemo(() => {
-        if (chargerType === 'AC') {
-          return [
-            { label: 'บ้าน Off-Peak', val: 2.6 },
-            { label: 'ไฟบ้านปกติ', val: 4.5 },
-            { label: 'บ้าน On-Peak', val: 5.8 },
-            { label: 'AC ห้าง/พาณิชย์', val: 9.0 }
-          ];
-        } else {
-          // ⚡ Updated to exact EV Station PluZ rates (from latest regulations)
-          if (peakMode === 'PEAK') {
-            return [
-              { label: 'PluZ 40-180kW (250A)', val: 7.9 },
-              { label: 'PluZ 180-200kW (300A)', val: 8.2 },
-              { label: 'PluZ Fast/Hub', val: 8.4 },
-              { label: 'PluZ Ultra 240-480', val: 9.4 }
-            ];
-          } else {
-            return [
-              { label: 'PluZ 40-180kW (250A)', val: 6.6 },
-              { label: 'PluZ 180-200kW (300A)', val: 6.9 },
-              { label: 'PluZ Fast/Hub', val: 7.1 },
-              { label: 'PluZ Ultra 240-480', val: 8.1 }
-            ];
-          }
-        }
-      }, [chargerType, peakMode]);
-
-      // Set default preset price when changing chargers or Peak/Off-Peak modes
-      useEffect(() => {
-        if (chargerType === 'AC') {
-          setPricePerUnit(4.5);
-        } else {
-          setPricePerUnit(peakMode === 'PEAK' ? 7.9 : 6.6);
-        }
-      }, [chargerType, peakMode]);
+      const pricePresets = chargerType === 'AC' 
+        ? [ {label: 'บ้าน Off-Peak', val: 2.6}, {label: 'ไฟบ้านปกติ', val: 4.5}, {label: 'บ้าน On-Peak', val: 5.8}, {label: 'AC สาธารณะ', val: 5.9} ]
+        : [ {label: 'PEA Fast (Off)', val: 5.9}, {label: 'PEA Fast (Peak)', val: 6.9}, {label: 'PTT / EA', val: 7.5}, {label: 'PEA Ultra', val: 7.9} ];
 
       const renderItemRow = (item) => {
         const isEditing = editingId === item.id;
@@ -688,11 +671,52 @@
                 </h1>
                 <p className="text-purple-200/70 text-sm mt-1 font-medium tracking-wide uppercase">HyperCharge Tracker</p>
               </div>
-              <button onClick={() => { setShowHistory(true); setActiveItemId(null); }} className="p-3 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-cyan-300 transition-all shadow-md group relative">
-                 <HistoryIcon className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                 {systemDB.history.length > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-fuchsia-500 rounded-full animate-pulse border border-[#120F24]"></span>}
-              </button>
+              
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setShowCalib(!showCalib)} 
+                  className={`p-3 rounded-xl border transition-all shadow-md ${showCalib ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-300' : 'bg-white/5 hover:bg-white/10 border-white/10 text-cyan-300'}`}
+                  title="ปรับแก้แรงดันไฟและความแม่นยำทางไฟฟ้า"
+                >
+                  <SettingsIcon className="w-5 h-5" />
+                </button>
+                <button onClick={() => { setShowHistory(true); setActiveItemId(null); }} className="p-3 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 text-cyan-300 transition-all shadow-md group relative">
+                   <HistoryIcon className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                   {systemDB.history.length > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-fuchsia-500 rounded-full animate-pulse border border-[#120F24]"></span>}
+                </button>
+              </div>
             </div>
+
+            {/* ⚡ Dynamic Calibration Panel (Settings Overlay to compensate for sags & heat losses) */}
+            {showCalib && (
+              <div className="p-5 bg-gradient-to-b from-[#18152e]/90 to-[#120F24]/90 border-b border-white/10 relative z-20 space-y-4 shadow-lg">
+                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                  <h4 className="text-xs font-black text-fuchsia-400 uppercase tracking-widest flex items-center gap-2">
+                    <SettingsIcon className="w-4 h-4 animate-spin-slow" /> เครื่องมือปรับแต่งวิศวกรรมไฟฟ้า
+                  </h4>
+                  <button onClick={() => { setCalibVoltage(229); setCalibOBC(94); }} className="text-[10px] text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 hover:bg-cyan-500/20">คืนค่าโรงงาน</button>
+                </div>
+                
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between text-[11px] font-bold text-gray-300 mb-1">
+                      <span>แรงดันไฟฟ้ากระแสสลับ (Voltage)</span>
+                      <span className="text-cyan-400 font-mono font-black">{calibVoltage} V</span>
+                    </div>
+                    <input type="range" min="200" max="240" step="1" value={calibVoltage} onChange={(e) => setCalibVoltage(Number(e.target.value))} className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full" />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-[11px] font-bold text-gray-300 mb-1">
+                      <span>ประสิทธิภาพตัวแปลงไฟรถ (OBC Efficiency)</span>
+                      <span className="text-fuchsia-400 font-mono font-black">{calibOBC}%</span>
+                    </div>
+                    <input type="range" min="75" max="98" step="1" value={calibOBC} onChange={(e) => setCalibOBC(Number(e.target.value))} className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-fuchsia-500 [&::-webkit-slider-thumb]:rounded-full" />
+                  </div>
+                </div>
+                <p className="text-[9px] text-purple-200/40 italic leading-normal">* ช่วยปรับประมาณการสู้การดึงไฟตกในพื้นที่ และค่าความร้อนสูญเสียสะสมของสายไฟบ้าน</p>
+              </div>
+            )}
 
             {/* Main Visuals & Time */}
             <div className="px-6 pb-6 pt-4 flex flex-col items-center justify-center relative z-10">
@@ -767,7 +791,9 @@
                       <div className="space-y-4">
                         <div className="flex justify-between items-center text-xs font-bold text-purple-200">
                           <span>กระแสชาร์จสายพกพา</span>
-                          <span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2.5 py-0.5 rounded border border-fuchsia-500/20 shadow-[0_0_10px_rgba(217,70,239,0.15)]">{acAmps}A</span>
+                          <span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2.5 py-0.5 rounded border border-fuchsia-500/20 shadow-[0_0_10px_rgba(217,70,239,0.15)]">
+                            {acAmps}A <span className="text-[10px] text-fuchsia-300/60 font-normal">(ดึงจริง {(acAmps * 0.94).toFixed(1)}A)</span>
+                          </span>
                         </div>
                         <div className="flex gap-2">
                           {[8, 10, 13, 16, 32].map((preset) => (
@@ -796,53 +822,30 @@
                     )}
                   </>
                 ) : (
-                  /* ⚡ Adjusted: DC Selection features ONLY ONE single unified Hypercharging button to avoid duplicate clutter */
-                  <div className="space-y-6">
+                  <div className="space-y-4">
                     <div className="flex justify-between items-center text-xs font-bold text-purple-200">
                       <span>กำลังไฟตู้ชาร์จ DC</span>
                       <span className="text-cyan-400 font-black bg-cyan-500/10 px-2.5 py-0.5 rounded border border-cyan-500/20 shadow-[0_0_10px_rgba(34,211,238,0.15)]">{dcPower} kW</span>
                     </div>
+                    
+                    <div className="space-y-3">
+                      <div>
+                        <span className="block text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1.5">Standard DC Fast Charging (ความเร็วปกติ)</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => setDcPower(25)} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${dcPower === 25 ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300' : 'bg-black/20 border-white/5 text-purple-400/60'}`}>25 kW <span className="block text-[8px] font-normal text-gray-500">(โชว์รูม/ดีลเลอร์)</span></button>
+                          <button onClick={() => setDcPower(50)} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${dcPower === 50 ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300' : 'bg-black/20 border-white/5 text-purple-400/60'}`}>50 kW <span className="block text-[8px] font-normal text-gray-500">(ตู้ชาร์จด่วนทั่วไป)</span></button>
+                        </div>
+                      </div>
 
-                    {/* Standard DC Section (2 Column Grid) */}
-                    <div>
-                      <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-widest flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full"></span> Standard DC Fast Charging
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { val: 25, label: 'โชว์รูม / ดีลเลอร์', sub: '25 kW' },
-                          { val: 50, label: 'ตู้ชาร์จด่วนทั่วไป', sub: '50 kW' }
-                        ].map((preset) => (
-                          <button 
-                            key={preset.val} 
-                            onClick={() => setDcPower(preset.val)} 
-                            className={`py-2 px-1 rounded-xl border transition-all flex flex-col items-center justify-center ${dcPower === preset.val ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}
-                          >
-                            <span className="text-[10px] font-black text-center leading-tight">{preset.label}</span>
-                            <span className="text-[8px] opacity-60 font-semibold mt-0.5">{preset.sub}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Ultra-Fast DC Section (Single Unified Full-Width Button) */}
-                    <div>
-                      <div className="text-[10px] font-bold text-fuchsia-400 mb-2 uppercase tracking-widest flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 bg-fuchsia-400 rounded-full"></span> Ultra-Fast DC Hypercharging
-                      </div>
-                      <div className="grid grid-cols-1">
-                        <button 
-                          onClick={() => setDcPower(120)} 
-                          className={`py-3 px-3 rounded-xl border transition-all flex flex-col items-center justify-center ${dcPower >= 120 ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-300 shadow-[0_0_15px_rgba(217,70,239,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60 hover:bg-white/10 hover:text-white'}`}
-                        >
-                          <span className="text-[11px] font-black text-center leading-tight">ตู้ด่วนพิเศษ (Hypercharger)</span>
-                          <span className="text-[9px] opacity-75 font-semibold mt-1">120 kW - 720 kW (รถรับไฟสูงสุดที่ 70 kW)</span>
+                      <div>
+                        <span className="block text-[10px] text-fuchsia-400 font-bold uppercase tracking-wider mb-1.5">Ultra-Fast DC Hypercharging (ความเร็วสูงพิเศษ)</span>
+                        <button onClick={() => setDcPower(120)} className={`w-full py-2.5 text-xs font-bold rounded-lg border transition-all ${dcPower >= 120 ? 'bg-gradient-to-r from-fuchsia-500/20 to-purple-500/20 border-fuchsia-500/50 text-fuchsia-300 shadow-[0_0_15px_rgba(217,70,239,0.2)]' : 'bg-black/20 border-white/5 text-purple-400/60'}`}>
+                          120 kW - 720 kW <span className="block text-[8px] font-normal text-fuchsia-300/70 mt-0.5">(ปั๊ม ปตท./PEA *รถรับกระแสไฟจริงสูงสุดที่ 70 kW)</span>
                         </button>
                       </div>
                     </div>
 
-                    {/* Dynamic Manual Slider */}
-                    <div>
+                    <div className="pt-2">
                       <input type="range" min="10" max="360" step="5" value={dcPower} onChange={(e) => setDcPower(Number(e.target.value))} className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-[#120F24]" style={{ background: `linear-gradient(to right, #22d3ee ${((dcPower - 10) / 350) * 100}%, rgba(255,255,255,0.05) ${((dcPower - 10) / 350) * 100}%)` }} />
                     </div>
                   </div>
@@ -887,6 +890,16 @@
                   </div>
                 </div>
                 
+                {chargerType === 'DC' && (
+                  <div className="w-full shrink-0 mb-4 bg-black/20 p-2 rounded-xl border border-white/5">
+                     <span className="block text-[10px] font-bold text-cyan-400/70 mb-1.5 uppercase tracking-wider text-center">ช่วงเวลาใช้บริการตู้ชาร์จ</span>
+                     <div className="flex p-0.5 bg-[#120F24] rounded-lg border border-white/5">
+                        <button onClick={() => setPricePerUnit(8.2)} className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${pricePerUnit === 7.9 || pricePerUnit === 8.2 || pricePerUnit === 8.4 || pricePerUnit === 9.4 ? 'bg-fuchsia-500 text-black shadow-md' : 'text-gray-400'}`}>☀️ On-Peak</button>
+                        <button onClick={() => setPricePerUnit(6.9)} className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all ${pricePerUnit === 6.6 || pricePerUnit === 6.9 || pricePerUnit === 7.1 || pricePerUnit === 8.1 ? 'bg-cyan-500 text-black shadow-md' : 'text-gray-400'}`}>🌙 Off-Peak</button>
+                     </div>
+                  </div>
+                )}
+
                 <div className="w-full text-center border-t border-white/5 pt-5">
                   <label className="block text-xs font-bold text-emerald-400/80 mb-2 uppercase tracking-wider">
                     ค่าไฟ / หน่วย (บาท)
@@ -894,39 +907,33 @@
                   <div className="relative max-w-[200px] mx-auto mb-4">
                     <input type="number" step="0.1" value={pricePerUnit} onChange={(e) => setPricePerUnit(e.target.value)} className="w-full bg-[#050B14] border border-white/5 text-emerald-300 rounded-xl px-4 py-3 sm:py-4 focus:outline-none font-mono text-xl font-black text-center" />
                   </div>
-
-                  {/* ⚡ Dynamic TOU Mode Selector Switch: Only visible when chargerType is DC (Optional for AC to maintain simplicity) */}
-                  {chargerType === 'DC' && (
-                    <div className="mb-4">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">ช่วงเวลาการใช้งาน (TOU Rate)</label>
-                      <div className="flex max-w-xs mx-auto bg-black/40 rounded-lg p-0.5 border border-white/5">
-                        <button 
-                          onClick={() => setPeakMode('PEAK')}
-                          className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${peakMode === 'PEAK' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/20' : 'text-slate-400 hover:text-white'}`}
-                        >
-                          ☀️ On-Peak (กลางวัน)
-                        </button>
-                        <button 
-                          onClick={() => setPeakMode('OFF_PEAK')}
-                          className={`flex-1 py-1.5 text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${peakMode === 'OFF_PEAK' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/20' : 'text-slate-400 hover:text-white'}`}
-                        >
-                          🌙 Off-Peak (กลางคืน/วันหยุด)
-                        </button>
-                      </div>
-                    </div>
+                  
+                  {chargerType === 'AC' ? (
+                     <div className="grid grid-cols-4 gap-2 max-w-sm mx-auto mb-5">
+                       {pricePresets.map((preset) => (
+                         <button key={preset.label} onClick={() => setPricePerUnit(preset.val)} className={`py-2 px-1 text-[8px] font-bold uppercase rounded-xl transition-all ${pricePerUnit === preset.val ? 'bg-gradient-to-b from-emerald-400 to-emerald-600 text-white' : 'bg-black/40 border border-white/5 text-emerald-400/60'}`}>{preset.label}</button>
+                       ))}
+                     </div>
+                  ) : (
+                     <div className="grid grid-cols-4 gap-1 max-w-sm mx-auto mb-5">
+                        {/* Dynamic EV Station PluZ tiered prices based on On/Off Peak switch selection */}
+                        {(() => {
+                           const isOnPeak = (pricePerUnit === 7.9 || pricePerUnit === 8.2 || pricePerUnit === 8.4 || pricePerUnit === 9.4);
+                           const dcPresets = isOnPeak 
+                             ? [ {l: 'ตู้ 40-180kW', v: 7.9}, {l: 'ตู้ 180-200', v: 8.2}, {l: 'EV HUB/Fast', v: 8.4}, {l: 'Ultra 240+', v: 9.4} ]
+                             : [ {l: 'ตู้ 40-180kW', v: 6.6}, {l: 'ตู้ 180-200', v: 6.9}, {l: 'EV HUB/Fast', v: 7.1}, {l: 'Ultra 240+', v: 8.1} ];
+                           return dcPresets.map(preset => (
+                             <button key={preset.l} onClick={() => setPricePerUnit(preset.v)} className={`py-2 px-0.5 text-[7px] font-bold uppercase rounded-lg border transition-all ${pricePerUnit === preset.v ? 'bg-gradient-to-b from-emerald-400 to-emerald-600 text-white border-transparent' : 'bg-black/40 border-white/5 text-emerald-400/60'}`}>
+                                <span className="block truncate">{preset.l}</span>
+                                <span className="block mt-0.5 text-[8px] font-black">฿{preset.v}</span>
+                             </button>
+                           ));
+                        })()}
+                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-2 max-w-sm mx-auto mb-5">
-                    {pricePresets.map((preset) => (
-                      <button key={preset.label} onClick={() => setPricePerUnit(preset.val)} className={`py-2 px-1 text-[9px] leading-tight font-bold uppercase rounded-xl transition-all border ${pricePerUnit === preset.val ? 'bg-gradient-to-b from-emerald-400 to-emerald-600 border-emerald-500 text-white shadow-[0_0_12px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 text-emerald-400/60 hover:text-white'}`}>
-                        <span className="block font-black">{preset.val.toFixed(1)} ฿</span>
-                        <span className="text-[7px] opacity-65 font-medium">{preset.label}</span>
-                      </button>
-                    ))}
-                  </div>
-
                   <div className="border-t border-white/5 border-dashed pt-4 flex justify-between items-center gap-3">
-                    <p className="text-[9px] text-emerald-400/40 text-left flex-1">* ประมวลเรทตามจริงตามพิกัดตู้และสถานี EV Station PluZ ยุคใหม่</p>
+                    <p className="text-[9px] text-emerald-400/40 text-left flex-1">* อ้างอิงราคาตู้ชาร์จ PEA VOLTA, EV Station PluZ และค่าไฟบ้าน</p>
                     <button onClick={handleSaveSession} disabled={isSaving || calcDetails.error || !systemDB.user} className="px-4 py-2.5 bg-emerald-500/20 text-emerald-300 text-[10px] font-bold uppercase rounded-lg border border-emerald-500/30 transition-all disabled:opacity-50 flex items-center gap-2">
                       {isSaving ? 'กำลังบันทึก...' : <><SaveIcon className="w-3.5 h-3.5" /> บันทึกยอด</>}
                     </button>
@@ -961,15 +968,17 @@
                       )}
                   </div>
                   
-                  {/* Master Accumulated Summation Card */}
-                  {/* ⚡ Modified: Displays monthly total vs all-time total dynamically depending on selected tab (image_9278cb.png) */}
+                  {/* Master Accumulated Summation Card with dynamic Tab toggling */}
                   <div className="p-6 bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border-b border-white/5 text-center relative shrink-0">
                       <div className="text-[10px] text-emerald-400/70 font-bold uppercase tracking-widest mb-2 relative z-10">
                           {historyTab === 'records' ? 'ยอดใช้จ่ายสะสมเดือนนี้' : 'ยอดใช้จ่ายสะสมทั้งหมด'}
                       </div>
                       <div className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-emerald-400 font-mono relative z-10 drop-shadow-md">
                           <span className="text-2xl mr-1 text-emerald-500/70">฿</span>
-                          {(historyTab === 'records' ? currentMonthTotal : allTimeTotal).toFixed(2)}
+                          {historyTab === 'records' 
+                             ? (currentMonthGroup ? currentMonthGroup.total : 0).toFixed(2)
+                             : systemDB.history.reduce((sum, item) => sum + (Number(item.cost)||0), 0).toFixed(2)
+                          }
                       </div>
                   </div>
 
@@ -1103,7 +1112,7 @@
                                               </div>
                                           </div>
 
-                                          {/* Expanded List View: Charging items for this specific month */}
+                                          {/* Expanded List View */}
                                           {isExpanded && (
                                               <div className="p-4 bg-[#0a0815]/60 space-y-3 transition-all">
                                                   <h4 className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest mb-2 px-2">รายการจดบันทึกทั้งหมดประจำเดือน</h4>
@@ -1144,3 +1153,5 @@
   </script>
 </body>
 </html>
+
+```
