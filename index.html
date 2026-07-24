@@ -630,12 +630,12 @@
                   <button onClick={() => setShowHistory(false)} className="text-white/50 hover:text-white text-xl font-bold">✕</button>
                 </div>
 
-                {/* Master Accumulated Sum Header (Emerald/Green Theme for Grand Total) */}
-                <div className="p-5 bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border-b border-white/5 text-center">
-                  <div className="text-[10px] text-emerald-400/70 font-bold uppercase mb-1">
+                {/* 🟢 Master Accumulated Sum Header (Emerald Green Theme for Total Money) */}
+                <div className="p-5 bg-gradient-to-br from-emerald-900/30 to-teal-900/20 border-b border-white/5 text-center">
+                  <div className="text-[10px] text-emerald-400/80 font-bold uppercase tracking-wider mb-1">
                     {historyTab === 'records' ? 'ยอดใช้จ่ายสะสมเดือนนี้' : 'ยอดใช้จ่ายสะสมทั้งหมด'}
                   </div>
-                  <div className="text-3xl font-black font-mono text-transparent bg-clip-text bg-gradient-to-b from-white via-emerald-200 to-emerald-400 drop-shadow-md">
+                  <div className="text-3xl font-black font-mono text-transparent bg-clip-text bg-gradient-to-b from-white via-emerald-200 to-emerald-400 drop-shadow-[0_0_15px_rgba(16,185,129,0.3)]">
                     ฿{historyTab === 'records' 
                       ? (currentMonthGroup ? currentMonthGroup.total : 0).toFixed(2)
                       : systemDB.history.reduce((sum, item) => sum + (Number(item.cost)||0), 0).toFixed(2)
@@ -661,7 +661,7 @@
                     <div>
                       <div className="flex justify-between text-xs font-bold text-cyan-300 uppercase border-b border-white/10 pb-2 mb-3">
                         <span>เดือนปัจจุบัน ({currentMonthLabel})</span>
-                        <span className="font-mono text-emerald-400">฿{currentMonthGroup ? currentMonthGroup.total.toFixed(2) : "0.00"}</span>
+                        <span className="font-mono text-emerald-400 font-bold">฿{currentMonthGroup ? currentMonthGroup.total.toFixed(2) : "0.00"}</span>
                       </div>
                       {!currentMonthGroup || currentMonthGroup.items.length === 0 ? (
                         <div className="text-center text-white/30 py-12 text-xs">ไม่มีรายการชาร์จในเดือนนี้</div>
@@ -670,14 +670,14 @@
                           const isEditing = editingId === item.id;
                           const isFocused = activeItemId === item.id;
                           return (
-                            <div key={item.id} onClick={() => !isEditing && setActiveItemId(isFocused ? null : item.id)} className={`p-3.5 rounded-2xl border transition-all cursor-pointer mb-2 ${isFocused ? 'bg-white/5 border-cyan-500/50' : 'bg-black/40 border-white/5'}`}>
+                            <div key={item.id} onClick={() => !isEditing && setActiveItemId(isFocused ? null : item.id)} className={`p-3.5 rounded-2xl border transition-all cursor-pointer mb-2 ${isFocused ? 'bg-white/5 border-amber-500/50' : 'bg-black/40 border-white/5'}`}>
                               {isEditing ? (
                                 <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
-                                  <h4 className="text-xs font-bold text-cyan-400 uppercase">แก้ไขรายการชาร์จ</h4>
-                                  <input type="datetime-local" value={editDateTime} onChange={(e) => setEditDateTime(e.target.value)} className="w-full bg-[#050B14] border border-white/10 text-cyan-300 rounded-xl px-3 py-1.5 text-xs font-mono" />
+                                  <h4 className="text-xs font-bold text-amber-400 uppercase">แก้ไขรายการชาร์จ</h4>
+                                  <input type="datetime-local" value={editDateTime} onChange={(e) => setEditDateTime(e.target.value)} className="w-full bg-[#050B14] border border-white/10 text-amber-300 rounded-xl px-3 py-1.5 text-xs font-mono" />
                                   <div className="flex items-center gap-2">
-                                    <span className="text-cyan-400 font-bold">฿</span>
-                                    <input type="number" step="0.01" value={editCost} onChange={(e) => setEditCost(e.target.value)} className="w-full bg-[#050B14] border border-white/10 text-cyan-300 rounded-xl px-3 py-1.5 text-right font-mono text-sm font-bold" />
+                                    <span className="text-amber-400 font-bold">฿</span>
+                                    <input type="number" step="0.01" value={editCost} onChange={(e) => setEditCost(e.target.value)} className="w-full bg-[#050B14] border border-white/10 text-amber-300 rounded-xl px-3 py-1.5 text-right font-mono text-sm font-bold" />
                                   </div>
                                   <div className="flex justify-end gap-2 pt-2">
                                     <button onClick={() => setEditingId(null)} className="px-3 py-1 bg-white/10 text-xs rounded-lg">ยกเลิก</button>
@@ -685,7 +685,7 @@
                                       const ts = new Date(editDateTime).getTime();
                                       await systemDB.updateRecord(item.id, Number(editCost)||0, ts);
                                       setEditingId(null); setActiveItemId(null);
-                                    }} className="px-3 py-1 bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs rounded-lg font-bold">บันทึก</button>
+                                    }} className="px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs rounded-lg font-bold">บันทึก</button>
                                   </div>
                                 </div>
                               ) : (
@@ -698,8 +698,8 @@
                                         <span className="text-xs font-bold text-white/80">{item.startSoC}% → {item.targetSoC}%</span>
                                       </div>
                                     </div>
-                                    {/* Individual Transaction Item Cost: Cyan Theme */}
-                                    <span className="text-base font-black text-cyan-300 font-mono">฿{Number(item.cost).toFixed(2)}</span>
+                                    {/* 🟡 Individual Session Amount: High-Contrast Amber Gold (#fcd34d) */}
+                                    <span className="text-lg font-black text-amber-300 font-mono drop-shadow-[0_0_10px_rgba(251,191,36,0.3)]">฿{Number(item.cost).toFixed(2)}</span>
                                   </div>
                                   {isFocused && (
                                     <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-white/5" onClick={(e) => e.stopPropagation()}>
@@ -733,6 +733,7 @@
                                 <h3 className="text-sm font-black">{group.label}</h3>
                               </div>
                               <div className="flex items-center gap-2">
+                                {/* 🟢 Monthly Group Total: Emerald Green */}
                                 <span className="text-base font-black font-mono text-emerald-400">฿{group.total.toFixed(2)}</span>
                                 <Icon name="chevron" className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                               </div>
@@ -744,7 +745,8 @@
                               </div>
                               <div className="bg-white/5 p-2 rounded-xl">
                                 <span className="block text-[8px] text-white/40 uppercase">เฉลี่ยต่อครั้ง</span>
-                                <span className="font-bold font-mono text-cyan-300">฿{avg.toFixed(2)}</span>
+                                {/* 🟡 Average Amount: Amber Gold */}
+                                <span className="font-bold font-mono text-amber-300">฿{avg.toFixed(2)}</span>
                               </div>
                             </div>
                             {isExpanded && (
@@ -753,7 +755,8 @@
                                 {group.items.map(item => (
                                   <div key={item.id} className="p-2 bg-black/40 rounded-xl text-xs flex justify-between">
                                     <span>{new Date(item.timestamp).toLocaleDateString('th-TH')} ({item.startSoC}% → {item.targetSoC}%)</span>
-                                    <span className="font-mono text-cyan-300 font-bold">฿{Number(item.cost).toFixed(2)}</span>
+                                    {/* 🟡 Individual Session Amount in drill-down: Amber Gold */}
+                                    <span className="font-mono text-amber-300 font-bold">฿{Number(item.cost).toFixed(2)}</span>
                                   </div>
                                 ))}
                               </div>
