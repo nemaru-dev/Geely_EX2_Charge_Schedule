@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (Calibrated)</title>
+  <title>Geely EX2 Charging Tracker (GitHub Ready)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -62,12 +62,20 @@
 
     const { useState, useEffect, useMemo, useRef, memo } = React;
 
+    // Helper: ดึงเวลาปัจจุบันจากเครื่องเป็นฟอร์แมต HH:mm
+    const getCurrentTimeStr = () => {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      return `${hours}:${minutes}`;
+    };
+
     // --- EV Constants ---
     const EV_SPECS = {
       CAPACITY: 39.4,
       MAX_AC_POWER: 6.6,
       MAX_DC_POWER: 70.0,
-      AC_EFFICIENCY: 0.94, // ปรับแต่งค่าฐานประสิทธิภาพของ OBC หลักเป็น 94% เพื่อจับคู่สถิติตู้
+      AC_EFFICIENCY: 0.94,
       DC_EFFICIENCY: 0.95,
       TRICKLE_RATE: 0.35,
       COST_EFFICIENCY: 0.90,
@@ -288,14 +296,12 @@
       return { user, history, isReady, storageMode, isAuthLoading, authError, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord };
     }
 
-    // ⚡ Refined: useChargeCalculation now implements safe AC balancing curves and calibrated volt/amp metrics
     function useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC) {
       return useMemo(() => {
         let currentStationPower = 0;
         
         if (chargerType === 'AC') {
           if (acInputMode === 'A') {
-            // 9.4A is real active draw limit for Geely EX2 on 10A setting (Safety offset factor: ~0.94)
             const activeAmps = acAmps * 0.94;
             currentStationPower = (activeAmps * calibVoltage) / 1000;
           } else {
@@ -321,8 +327,7 @@
 
         let timeInHours = 0;
         if (chargerType === 'AC') {
-          // Dynamic dual-phase AC charging model (Bulk + Cell Balancing)
-          const effRatio = calibOBC / 100; // OBC efficiency (default 94%)
+          const effRatio = calibOBC / 100;
           
           if (currentSoC < 90) {
             const targetForBulk = Math.min(targetSoC, 90);
@@ -333,7 +338,6 @@
           if (targetSoC > 90) {
             const startForTaper = Math.max(currentSoC, 90);
             const energyTaper = EV_SPECS.CAPACITY * ((targetSoC - startForTaper) / 100);
-            // Constant Voltage Phase slows down charging rate to 85% during 90-100% SoC
             timeInHours += energyTaper / (actualPower * effRatio * 0.85);
           }
         } else {
@@ -433,10 +437,9 @@
       const [historyTab, setHistoryTab] = useState("records"); 
       const [expandedMonthKey, setExpandedMonthKey] = useState(null);
 
-      // ⚡ Advanced Calibration States (Hidden accordion for precision engineering)
       const [showCalib, setShowCalib] = useState(false);
-      const [calibVoltage, setCalibVoltage] = useState(229); // Calibrated Thai local voltage (defaults to 229V from photo)
-      const [calibOBC, setCalibOBC] = useState(94); // Standard OBC efficiency (default 94%)
+      const [calibVoltage, setCalibVoltage] = useState(229); 
+      const [calibOBC, setCalibOBC] = useState(94); 
 
       const [currentSoC, setCurrentSoC] = useState(62);
       const [targetSoC, setTargetSoC] = useState(100);
@@ -447,13 +450,13 @@
       const [acAmps, setAcAmps] = useState(10); 
       const [scheduleMode, setScheduleMode] = useState('START_AT'); 
       const [targetTime, setTargetTime] = useState('06:30'); 
-      const [userStartTime, setUserStartTime] = useState("23:00"); 
+      
+      // ⚡ Modified: Initialize with real-time phone clock instead of hardcoded 23:00
+      const [userStartTime, setUserStartTime] = useState(getCurrentTimeStr()); 
       const [pricePerUnit, setPricePerUnit] = useState(4.5);
 
-      // Dynamic calculation parameters
       const calcDetails = useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC);
 
-      // Group monthly transaction items
       const groupedHistory = useMemo(() => {
         const groups = {};
         systemDB.history.forEach(item => {
@@ -686,7 +689,7 @@
               </div>
             </div>
 
-            {/* ⚡ Dynamic Calibration Panel (Settings Overlay to compensate for sags & heat losses) */}
+            {/* Dynamic Calibration Panel */}
             {showCalib && (
               <div className="p-5 bg-gradient-to-b from-[#18152e]/90 to-[#120F24]/90 border-b border-white/10 relative z-20 space-y-4 shadow-lg">
                 <div className="flex justify-between items-center border-b border-white/5 pb-2">
@@ -855,8 +858,19 @@
               <div className="bg-gradient-to-br from-fuchsia-900/30 to-violet-900/30 p-5 sm:p-6 rounded-[24px] border border-fuchsia-500/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden mt-2">
                 <div className="flex bg-black/40 rounded-xl p-1 mb-5 border border-white/5 shadow-inner relative z-10">
                   <button onClick={() => setScheduleMode('FINISH_BY')} className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-300 ${scheduleMode === 'FINISH_BY' ? 'bg-white/10 text-white border border-white/20' : 'text-purple-400/50 hover:text-white'}`}>ตั้งเวลาใช้รถ</button>
-                  <button onClick={() => setScheduleMode('START_AT')} className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-300 ${scheduleMode === 'START_AT' ? 'bg-white/10 text-white border border-white/20' : 'text-purple-400/50 hover:text-white'}`}>เริ่มชาร์จเดี๋ยวนี้</button>
+                  
+                  {/* ⚡ Modified: Tab onClick now updates userStartTime with real-time phone clock */}
+                  <button 
+                    onClick={() => {
+                      setScheduleMode('START_AT');
+                      setUserStartTime(getCurrentTimeStr());
+                    }} 
+                    className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all duration-300 ${scheduleMode === 'START_AT' ? 'bg-white/10 text-white border border-white/20' : 'text-purple-400/50 hover:text-white'}`}
+                  >
+                    เริ่มชาร์จเดี๋ยวนี้
+                  </button>
                 </div>
+                
                 <div className="flex flex-col gap-3 relative z-10">
                   <div className="bg-black/20 rounded-2xl p-4 border border-white/5">
                     <label className="block text-[10px] sm:text-xs font-bold text-fuchsia-200/70 mb-2 uppercase tracking-widest">{schedule?.inputLabel}</label>
@@ -915,7 +929,6 @@
                      </div>
                   ) : (
                      <div className="grid grid-cols-4 gap-1 max-w-sm mx-auto mb-5">
-                        {/* Dynamic EV Station PluZ tiered prices based on On/Off Peak switch selection */}
                         {(() => {
                            const isOnPeak = (pricePerUnit === 7.9 || pricePerUnit === 8.2 || pricePerUnit === 8.4 || pricePerUnit === 9.4);
                            const dcPresets = isOnPeak 
