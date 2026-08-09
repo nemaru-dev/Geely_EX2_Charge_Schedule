@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (DC Precision Fixed)</title>
+  <title>Geely EX2 Charging Tracker (Recalculate & Undo)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -62,7 +62,7 @@
       DC_EFFICIENCY: 0.95, 
       TRICKLE_RATE: 0.35, 
       AC_COST_EFFICIENCY: 0.90, 
-      DC_COST_EFFICIENCY: 18.912 / 21.728, // High precision ratio to eliminate floating point truncation
+      DC_COST_EFFICIENCY: 18.912 / 21.728, 
       AC_VAMPIRE_DRAIN_KW: 0.3
     };
 
@@ -76,7 +76,7 @@
         trash: <><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></>,
         edit: <><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></>,
         user: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>,
-        settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83 2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>,
+        settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83 2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>,
         list: <><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /></>,
         chart: <><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></>,
         chevron: <polyline points="6 9 12 15 18 9" />
@@ -225,7 +225,66 @@
         localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
       };
 
-      return { user, history, isReady, storageMode, isAuthLoading, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord };
+      // ⚡ Recalculate all history items with Undo support
+      const recalculateAllHistory = async () => {
+        const updated = history.map(item => {
+          const prev = item.previousCost !== undefined ? item.previousCost : item.cost;
+          const startSoC = item.startSoC || 0;
+          const targetSoC = item.targetSoC || 100;
+          const chargerType = item.chargerType || 'AC';
+          const price = Number(item.pricePerUnit) || 4.5;
+          const energyNeeded = EV_SPECS.CAPACITY * ((targetSoC - startSoC) / 100);
+
+          let cost = 0;
+          if (chargerType === 'AC') {
+            const timeHours = energyNeeded / (EV_SPECS.MAX_AC_POWER * 0.94);
+            cost = ((energyNeeded / EV_SPECS.AC_COST_EFFICIENCY) + (timeHours * EV_SPECS.AC_VAMPIRE_DRAIN_KW)) * price;
+          } else {
+            cost = (energyNeeded / EV_SPECS.DC_COST_EFFICIENCY) * price;
+          }
+
+          return { ...item, previousCost: prev, cost: Number(cost.toFixed(2)) };
+        });
+
+        if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+          try {
+            for (const item of updated) {
+              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', item.id), {
+                cost: item.cost,
+                previousCost: item.previousCost
+              });
+            }
+          } catch(e) { console.error("Cloud bulk update error", e); }
+        }
+        setHistory(updated);
+        localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
+      };
+
+      const undoRecalculateHistory = async () => {
+        const updated = history.map(item => {
+          if (item.previousCost !== undefined) {
+            const restoredCost = item.previousCost;
+            const { previousCost, ...rest } = item;
+            return { ...rest, cost: restoredCost };
+          }
+          return item;
+        });
+
+        if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+          try {
+            for (const item of updated) {
+              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', item.id), {
+                cost: item.cost,
+                previousCost: null
+              });
+            }
+          } catch(e) { console.error("Cloud undo error", e); }
+        }
+        setHistory(updated);
+        localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
+      };
+
+      return { user, history, isReady, storageMode, isAuthLoading, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord, recalculateAllHistory, undoRecalculateHistory };
     }
 
     function useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC) {
@@ -263,7 +322,6 @@
         if (chargerType === 'AC') {
           cost = ((energyNeeded / EV_SPECS.AC_COST_EFFICIENCY) + (timeHours * EV_SPECS.AC_VAMPIRE_DRAIN_KW)) * (Number(pricePerUnit) || 0);
         } else {
-          // Exact ratio math: (18.912 kWh / (18.912 / 21.728)) * 5.9 = 21.728 * 5.9 = 128.1952 -> rounds to 128.20
           cost = (energyNeeded / EV_SPECS.DC_COST_EFFICIENCY) * (Number(pricePerUnit) || 0);
         }
 
@@ -766,8 +824,8 @@
                   </div>
                 </div>
 
-                {/* Tab Switcher */}
-                <div className="px-4 py-2.5 bg-white/5 border-b border-white/5">
+                {/* Tab Switcher & Bulk Recalculate / Undo Buttons */}
+                <div className="px-4 py-2.5 bg-white/5 border-b border-white/5 space-y-2">
                   <div className="flex bg-black/40 p-0.5 rounded-xl text-xs font-bold">
                     <button onClick={() => { setHistoryTab('records'); setActiveItemId(null); }} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 ${historyTab === 'records' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>
                       <Icon name="list" className="w-3.5 h-3.5" /> รายการเดือนนี้
@@ -775,6 +833,18 @@
                     <button onClick={() => { setHistoryTab('summary'); setActiveItemId(null); }} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 ${historyTab === 'summary' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>
                       <Icon name="chart" className="w-3.5 h-3.5" /> สรุปรายเดือน
                     </button>
+                  </div>
+                  
+                  {/* ⚡ Bulk Recalculate & Undo Toolbar */}
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={systemDB.recalculateAllHistory} className="flex-1 py-2 bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-fuchsia-300 border border-fuchsia-500/30 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all">
+                      🔄 คำนวณประวัติใหม่ตามสูตรปัจจุบัน
+                    </button>
+                    {systemDB.history.some(item => item.previousCost !== undefined) && (
+                      <button onClick={systemDB.undoRecalculateHistory} className="px-3 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all" title="กู้คืนยอดเงินเดิมก่อนคำนวณ">
+                        ↩️ Undo
+                      </button>
+                    )}
                   </div>
                 </div>
 
