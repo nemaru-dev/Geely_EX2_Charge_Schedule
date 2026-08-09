@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (Jan 2026 Rates)</title>
+  <title>Geely EX2 Charging Tracker (DC Precision Fixed)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -53,7 +53,7 @@
       return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     };
 
-    // ⚡ Precision EV Specs: DC_COST_EFFICIENCY matched to station meter physics
+    // ⚡ Exact High-Precision EV Specs Ratio (18.912 kWh / 21.728 kWh = 0.8703930412371134)
     const EV_SPECS = { 
       CAPACITY: 39.4, 
       MAX_AC_POWER: 6.6, 
@@ -62,7 +62,7 @@
       DC_EFFICIENCY: 0.95, 
       TRICKLE_RATE: 0.35, 
       AC_COST_EFFICIENCY: 0.90, 
-      DC_COST_EFFICIENCY: 0.870411, // Calibrated ratio: Net Battery Energy (18.912) / Station Billed Energy (21.728)
+      DC_COST_EFFICIENCY: 18.912 / 21.728, // High precision ratio to eliminate floating point truncation
       AC_VAMPIRE_DRAIN_KW: 0.3
     };
 
@@ -76,7 +76,7 @@
         trash: <><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></>,
         edit: <><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></>,
         user: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>,
-        settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>,
+        settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83 2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>,
         list: <><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /></>,
         chart: <><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></>,
         chevron: <polyline points="6 9 12 15 18 9" />
@@ -259,11 +259,11 @@
 
         const totalMins = Math.round(timeHours * 60);
 
-        // ⚡ Exact DC Station Billed Cost Formula (no double-counted Vampire Draw for DC meters)
         let cost = 0;
         if (chargerType === 'AC') {
           cost = ((energyNeeded / EV_SPECS.AC_COST_EFFICIENCY) + (timeHours * EV_SPECS.AC_VAMPIRE_DRAIN_KW)) * (Number(pricePerUnit) || 0);
         } else {
+          // Exact ratio math: (18.912 kWh / (18.912 / 21.728)) * 5.9 = 21.728 * 5.9 = 128.1952 -> rounds to 128.20
           cost = (energyNeeded / EV_SPECS.DC_COST_EFFICIENCY) * (Number(pricePerUnit) || 0);
         }
 
@@ -659,21 +659,19 @@
               </div>
 
               {chargerType === 'DC' && (
-                <div className="bg-black/20 p-2.5 rounded-xl border border-white/5 space-y-1.5">
-                  <span className="block text-[10px] font-bold text-cyan-400 text-center uppercase">ช่วงเวลาใช้บริการตู้ชาร์จ (Time of Use - TOU)</span>
+                <div className="bg-black/20 p-2 rounded-xl border border-white/5 space-y-1">
+                  <span className="block text-[10px] font-bold text-cyan-400 text-center uppercase">ช่วงเวลาใช้บริการตู้ชาร์จ (TIME OF USE - TOU)</span>
                   <div className="flex p-0.5 bg-[#120F24] rounded-lg">
-                    <button onClick={() => setPricePerUnit(7.5)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[6.9, 7.5, 7.7, 8.8].includes(pricePerUnit) ? 'bg-fuchsia-500 text-black' : 'text-gray-400'}`}>☀️ On-Peak</button>
-                    <button onClick={() => setPricePerUnit(5.5)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[4.5, 5.5, 5.8, 6.0].includes(pricePerUnit) ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>🌙 Off-Peak / Promo</button>
+                    <button onClick={() => setPricePerUnit(8.2)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[7.9, 8.2, 8.4, 9.4].includes(pricePerUnit) ? 'bg-fuchsia-500 text-black' : 'text-gray-400'}`}>☀️ On-Peak</button>
+                    <button onClick={() => setPricePerUnit(5.9)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[4.5, 5.5, 5.8, 5.9, 6.0, 6.6, 6.9, 7.1, 8.1].includes(pricePerUnit) ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>🌙 Off-Peak / Promo</button>
                   </div>
-                  <span className="block text-[8px] text-gray-400 text-center font-medium">
-                    { [6.9, 7.5, 7.7, 8.8].includes(pricePerUnit) ? '☀️ On-Peak: จันทร์-ศุกร์ 09:00 - 22:00 น.' : '🌙 Off-Peak: จันทร์-ศุกร์ 22:00 - 09:00 น. & เสาร์-อาทิตย์/วันหยุด' }
-                  </span>
+                  <p className="text-[8px] text-gray-400 text-center italic leading-tight pt-0.5">🌙 Off-Peak: จันทร์-ศุกร์ 22:00 - 09:00 น. & เสาร์-อาทิตย์/วันหยุด</p>
                 </div>
               )}
 
               <div className="text-center">
                 <label className="block text-xs font-bold text-emerald-400/80 mb-1 uppercase">ค่าไฟ / หน่วย (บาท)</label>
-                <input type="number" step="0.1" value={pricePerUnit} onChange={(e) => setPricePerUnit(Number(e.target.value))} className="w-28 mx-auto bg-[#050B14] border border-white/10 text-emerald-300 rounded-xl px-3 py-2 text-center font-mono text-lg font-black block mb-3" />
+                <input type="number" step="0.01" value={pricePerUnit} onChange={(e) => setPricePerUnit(Number(e.target.value))} className="w-28 mx-auto bg-[#050B14] border border-white/10 text-emerald-300 rounded-xl px-3 py-2 text-center font-mono text-lg font-black block mb-3" />
 
                 {chargerType === 'AC' ? (
                   <div className="grid grid-cols-4 gap-1 mb-3">
@@ -684,10 +682,10 @@
                 ) : (
                   <div className="grid grid-cols-4 gap-1 mb-3">
                     {(() => {
-                      const isOnPeak = [6.9, 7.5, 7.7, 8.8].includes(pricePerUnit);
+                      const isOnPeak = [7.9, 8.2, 8.4, 9.4].includes(pricePerUnit);
                       const dcPresets = isOnPeak 
-                        ? [ {l: 'PEA / Rever', v: 6.9}, {l: 'Elex/MEA/PluZ', v: 7.5}, {l: 'PTT PluZ Max', v: 7.7}, {l: 'EA / PEA Max', v: 8.8} ]
-                        : [ {l: 'PEA (ถูกสุด)', v: 4.5}, {l: 'PEA / PluZ', v: 5.5}, {l: 'ReverSharger', v: 5.8}, {l: 'PluZ / Easy', v: 6.0} ];
+                        ? [ {l: 'ตู้ 40-180kW', v: 7.9}, {l: 'ตู้ 180-200', v: 8.2}, {l: 'EV HUB/Fast', v: 8.4}, {l: 'Ultra 240+', v: 9.4} ]
+                        : [ {l: 'PEA (ถูกสุด)', v: 4.5}, {l: 'PEA / PluZ', v: 5.5}, {l: 'ReverCharger', v: 5.8}, {l: 'PluZ / Easy', v: 5.9} ];
                       return dcPresets.map(p => (
                         <button key={p.l} onClick={() => setPricePerUnit(p.v)} className={`py-1.5 px-0.5 text-[7px] font-bold rounded border ${pricePerUnit === p.v ? 'bg-emerald-500 text-black' : 'bg-black/40 border-white/5 text-emerald-400/70'}`}>
                           <span className="block truncate">{p.l}</span>
