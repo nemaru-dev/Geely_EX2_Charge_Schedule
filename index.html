@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (DC Calibrated)</title>
+  <title>Geely EX2 Charging Tracker (DC Exact Match)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -53,7 +53,7 @@
       return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     };
 
-    // ⚡ EV Specs with Separated AC/DC Efficiency Metrics
+    // ⚡ Precision EV Specs: DC_COST_EFFICIENCY matched to station meter physics
     const EV_SPECS = { 
       CAPACITY: 39.4, 
       MAX_AC_POWER: 6.6, 
@@ -62,9 +62,8 @@
       DC_EFFICIENCY: 0.95, 
       TRICKLE_RATE: 0.35, 
       AC_COST_EFFICIENCY: 0.90, 
-      DC_COST_EFFICIENCY: 0.87, // Calibrated for DC Fast Charging station meter loss (87.0%)
-      AC_VAMPIRE_DRAIN_KW: 0.3,
-      DC_VAMPIRE_DRAIN_KW: 1.0   // Active Battery Cooling / Fan Load during high-power DC Charging
+      DC_COST_EFFICIENCY: 0.870411, // Calibrated ratio: Net Battery Energy (18.912) / Station Billed Energy (21.728)
+      AC_VAMPIRE_DRAIN_KW: 0.3
     };
 
     const Icon = ({ name, className = "w-5 h-5" }) => {
@@ -260,10 +259,13 @@
 
         const totalMins = Math.round(timeHours * 60);
 
-        // ⚡ Calibrated DC vs AC Cost Formula
-        const costEff = chargerType === 'AC' ? EV_SPECS.AC_COST_EFFICIENCY : EV_SPECS.DC_COST_EFFICIENCY;
-        const vampire = chargerType === 'AC' ? EV_SPECS.AC_VAMPIRE_DRAIN_KW : EV_SPECS.DC_VAMPIRE_DRAIN_KW;
-        const cost = ((energyNeeded / costEff) + (timeHours * vampire)) * (Number(pricePerUnit) || 0);
+        // ⚡ Exact DC Station Billed Cost Formula (no double-counted Vampire Draw for DC meters)
+        let cost = 0;
+        if (chargerType === 'AC') {
+          cost = ((energyNeeded / EV_SPECS.AC_COST_EFFICIENCY) + (timeHours * EV_SPECS.AC_VAMPIRE_DRAIN_KW)) * (Number(pricePerUnit) || 0);
+        } else {
+          cost = (energyNeeded / EV_SPECS.DC_COST_EFFICIENCY) * (Number(pricePerUnit) || 0);
+        }
 
         return { hours: Math.floor(totalMins / 60), minutes: totalMins % 60, actualPower, bottleneck, error: null, cost };
       }, [currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC]);
@@ -658,7 +660,7 @@
 
               {chargerType === 'DC' && (
                 <div className="bg-black/20 p-2 rounded-xl border border-white/5">
-                  <span className="block text-[10px] font-bold text-cyan-400 text-center mb-1 uppercase">ช่วงเวลาใช้บริการตู้ชาร์จ (EV Station PluZ / PEA / Bangchak)</span>
+                  <span className="block text-[10px] font-bold text-cyan-400 text-center mb-1 uppercase">ช่วงเวลาใช้บริการตู้ชาร์จ (EV Station PluZ / PEA / BANGCHAK)</span>
                   <div className="flex p-0.5 bg-[#120F24] rounded-lg">
                     <button onClick={() => setPricePerUnit(8.2)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[7.9, 8.2, 8.4, 9.4].includes(pricePerUnit) ? 'bg-fuchsia-500 text-black' : 'text-gray-400'}`}>☀️ On-Peak</button>
                     <button onClick={() => setPricePerUnit(5.9)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[5.9, 6.6, 6.9, 7.1, 8.1].includes(pricePerUnit) ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>🌙 Off-Peak / Promo</button>
