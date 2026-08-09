@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (Older Data Editing Enabled)</title>
+  <title>Geely EX2 Charging Tracker (Older Data Editing Fixed)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -51,6 +51,18 @@
     const getCurrentTimeStr = () => {
       const now = new Date();
       return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    };
+
+    const getSafeISODateTime = (ts) => {
+      try {
+        const rawNum = Number(ts);
+        const d = new Date(isNaN(rawNum) ? ts : rawNum);
+        if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 16);
+        const tz = d.getTimezoneOffset() * 60000;
+        return new Date(d.getTime() - tz).toISOString().slice(0, 16);
+      } catch(e) {
+        return new Date().toISOString().slice(0, 16);
+      }
     };
 
     const EV_SPECS = { 
@@ -108,7 +120,13 @@
 
       const loadLocalData = () => {
         const savedData = localStorage.getItem('geely_ex2_history');
-        if (savedData) { try { setHistory(JSON.parse(savedData)); } catch(e){} }
+        if (savedData) { 
+          try { 
+            const parsed = JSON.parse(savedData);
+            const cleaned = parsed.map(item => ({ ...item, id: String(item.id) }));
+            setHistory(cleaned); 
+          } catch(e){} 
+        }
         setUser({ uid: 'local_user', isAnonymous: true });
         setStorageMode('local');
         setIsReady(true);
@@ -156,7 +174,7 @@
         migrateLocalData();
 
         return onSnapshot(colRef, (snapshot) => {
-          const rawData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => b.timestamp - a.timestamp);
+          const rawData = snapshot.docs.map(doc => ({ ...doc.data(), id: String(doc.id) })).sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
           
           const uniqueData = [];
           const seenSignatures = new Set();
@@ -175,7 +193,7 @@
           if (duplicatesToDelete.length > 0) {
             duplicatesToDelete.forEach(async (dupId) => {
               try {
-                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', dupId));
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', String(dupId)));
               } catch(e) { console.error("Cloud duplicate purge error", e); }
             });
           }
@@ -234,23 +252,24 @@
       };
 
       const addRecord = async (record) => {
-        const newRecord = { id: Date.now().toString(), ...record };
+        const newRecord = { id: String(Date.now()), ...record };
         if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
           try { await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), record); return; } catch(e){}
         }
-        const updated = [newRecord, ...history].sort((a,b) => b.timestamp - a.timestamp);
+        const updated = [newRecord, ...history].sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
         setHistory(updated);
         localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
       };
 
       const deleteRecord = async (id) => {
-        const updated = history.filter(item => item.id !== id);
+        const targetId = String(id);
+        const updated = history.filter(item => String(item.id) !== targetId);
         setHistory(updated);
         localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
 
         if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
           try {
-            await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', id));
+            await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId));
           } catch(e) {
             console.error("Cloud delete error", e);
             onAlertTriggered?.({ title: "ลบใน Cloud ไม่สำเร็จ", message: "ลบในเครื่องแล้ว แต่ไม่สามารถลบจาก Cloud ได้: " + e.message });
@@ -259,16 +278,17 @@
       };
 
       const updateRecord = async (id, newCost, newTimestamp) => {
+        const targetId = String(id);
         const numericCost = Number(newCost) || 0;
         const numericTs = Number(newTimestamp) || Date.now();
 
-        const updated = history.map(item => item.id === id ? { ...item, cost: numericCost, timestamp: numericTs } : item).sort((a,b) => b.timestamp - a.timestamp);
+        const updated = history.map(item => String(item.id) === targetId ? { ...item, cost: numericCost, timestamp: numericTs } : item).sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
         setHistory(updated);
         localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
 
         if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
           try {
-            await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', id), {
+            await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
               cost: numericCost,
               timestamp: numericTs
             });
@@ -282,7 +302,6 @@
       const importRecords = async (importedList) => {
         if (!Array.isArray(importedList) || importedList.length === 0) return 0;
         let addedCount = 0;
-        
         const newItemsToSave = [];
 
         for (const rawItem of importedList) {
@@ -300,13 +319,13 @@
           if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
             await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanItem);
           } else {
-            newItemsToSave.push({ id: (Date.now() + Math.random()).toString(), ...cleanItem });
+            newItemsToSave.push({ id: String(Date.now() + Math.random()), ...cleanItem });
           }
           addedCount++;
         }
 
         if (storageMode === 'local' && newItemsToSave.length > 0) {
-          const merged = [...newItemsToSave, ...history].sort((a, b) => b.timestamp - a.timestamp);
+          const merged = [...newItemsToSave, ...history].sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
           setHistory(merged);
           localStorage.setItem('geely_ex2_history', JSON.stringify(merged));
         }
@@ -340,7 +359,7 @@
         if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
           try {
             for (const item of updated) {
-              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', item.id), {
+              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', String(item.id)), {
                 cost: item.cost,
                 previousCost: item.previousCost
               });
@@ -366,7 +385,7 @@
           try {
             for (const item of history) {
               if (item.previousCost !== undefined && item.previousCost !== null) {
-                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', item.id), {
+                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', String(item.id)), {
                   cost: item.previousCost,
                   previousCost: null
                 });
@@ -474,14 +493,15 @@
     };
 
     const RecordItemCard = ({ item, activeItemId, setActiveItemId, editingId, setEditingId, editCost, setEditCost, editDateTime, setEditDateTime, systemDB }) => {
-      const isEditing = editingId === item.id;
-      const isFocused = activeItemId === item.id;
+      const itemIdStr = String(item.id);
+      const isEditing = String(editingId) === itemIdStr;
+      const isFocused = String(activeItemId) === itemIdStr;
+
       return (
         <div 
-          key={item.id} 
           onClick={(e) => {
             if (isEditing) return;
-            setActiveItemId(isFocused ? null : item.id);
+            setActiveItemId(isFocused ? null : itemIdStr);
           }} 
           className={`p-3.5 rounded-2xl border transition-all cursor-pointer mb-2 ${isFocused ? 'bg-white/5 border-amber-500/50' : 'bg-black/40 border-white/5'}`}
         >
@@ -510,7 +530,7 @@
                     e.stopPropagation();
                     setEditingId(null);
                   }} 
-                  className="px-3 py-1 bg-white/10 text-xs rounded-lg hover:bg-white/20"
+                  className="px-3.5 py-1.5 bg-white/10 text-xs rounded-lg hover:bg-white/20 font-bold"
                 >
                   ยกเลิก
                 </button>
@@ -519,11 +539,11 @@
                     e.stopPropagation();
                     const ts = editDateTime ? new Date(editDateTime).getTime() : item.timestamp;
                     const validTs = isNaN(ts) ? item.timestamp : ts;
-                    await systemDB.updateRecord(item.id, Number(editCost) || 0, validTs);
+                    await systemDB.updateRecord(itemIdStr, Number(editCost) || 0, validTs);
                     setEditingId(null); 
                     setActiveItemId(null);
                   }} 
-                  className="px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs rounded-lg font-bold hover:bg-amber-500/30"
+                  className="px-3.5 py-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs rounded-lg font-bold hover:bg-amber-500/30"
                 >
                   บันทึก
                 </button>
@@ -534,7 +554,7 @@
               <div className="flex justify-between items-start">
                 <div>
                   <div className="text-[10px] text-white/40 font-bold uppercase mb-1">
-                    {new Date(item.timestamp).toLocaleDateString('th-TH', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} น.
+                    {new Date(Number(item.timestamp) || item.timestamp).toLocaleDateString('th-TH', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} น.
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${item.chargerType==='DC'?'bg-cyan-500/20 text-cyan-300':'bg-fuchsia-500/20 text-fuchsia-300'}`}>
@@ -550,23 +570,21 @@
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
-                      setEditingId(item.id); 
+                      setEditingId(itemIdStr); 
                       setEditCost(Number(item.cost).toFixed(2));
-                      const d = new Date(item.timestamp);
-                      const tz = d.getTimezoneOffset() * 60000;
-                      setEditDateTime((new Date(d.getTime() - tz)).toISOString().slice(0, 16));
+                      setEditDateTime(getSafeISODateTime(item.timestamp));
                     }} 
-                    className="p-1.5 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg text-blue-400 flex items-center gap-1 text-[10px] uppercase font-bold"
+                    className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg text-blue-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-blue-500/20"
                   >
                     <Icon name="edit" className="w-3.5 h-3.5" /> แก้ไข
                   </button>
                   <button 
                     onClick={async (e) => {
                       e.stopPropagation();
-                      await systemDB.deleteRecord(item.id); 
+                      await systemDB.deleteRecord(itemIdStr); 
                       setActiveItemId(null);
                     }} 
-                    className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[10px] uppercase font-bold"
+                    className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-rose-500/20"
                   >
                     <Icon name="trash" className="w-3.5 h-3.5" /> ลบ
                   </button>
@@ -617,7 +635,7 @@
       const groupedHistory = useMemo(() => {
         const groups = {};
         systemDB.history.forEach(item => {
-          const date = new Date(item.timestamp);
+          const date = new Date(Number(item.timestamp) || item.timestamp);
           const monthYear = date.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
           const sortKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
@@ -629,11 +647,6 @@
 
         return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a)).map(([_, v]) => v);
       }, [systemDB.history]);
-
-      const currentMonthKey = useMemo(() => {
-        const now = new Date();
-        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      }, []);
 
       const filteredRecords = useMemo(() => {
         if (selectedMonthFilter === 'ALL') return systemDB.history;
@@ -1041,7 +1054,7 @@
             </div>
           )}
 
-          {}
+          {/* History Overlay Modal */}
           {showHistory && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
               <div className="bg-[#120F24] border border-white/10 w-full max-w-md h-[85vh] flex flex-col rounded-[32px] overflow-hidden shadow-2xl">
