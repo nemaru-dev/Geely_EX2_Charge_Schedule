@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker</title>
+  <title>Geely EX2 Charging Tracker (Older Data Editing Enabled)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -53,7 +53,6 @@
       return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     };
 
-    // ⚡ High-Precision EV Specs Ratio
     const EV_SPECS = { 
       CAPACITY: 39.4, 
       MAX_AC_POWER: 6.6, 
@@ -62,14 +61,14 @@
       DC_EFFICIENCY: 0.95, 
       TRICKLE_RATE: 0.35, 
       AC_COST_EFFICIENCY: 0.90, 
-      DC_COST_EFFICIENCY: 18.912 / 21.728, // High precision ratio to guarantee exact station bill matching
+      DC_COST_EFFICIENCY: 18.912 / 21.728,
       AC_VAMPIRE_DRAIN_KW: 0.3
     };
 
     const Icon = ({ name, className = "w-5 h-5" }) => {
       const paths = {
         zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />,
-        clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 16 14" /></>,
+        clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>,
         wallet: <><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-8" /><path d="M18 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" /></>,
         save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></>,
         history: <><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></>,
@@ -159,24 +158,20 @@
         return onSnapshot(colRef, (snapshot) => {
           const rawData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => b.timestamp - a.timestamp);
           
-          // 🧹 SMART CONTENT DEDUPLICATION & CLOUD CLEANUP
           const uniqueData = [];
           const seenSignatures = new Set();
           const duplicatesToDelete = [];
 
           for (const item of rawData) {
-            // Create content fingerprint signature
             const sig = `${item.timestamp}_${item.cost}_${item.startSoC}_${item.targetSoC}_${item.chargerType || ''}_${item.power || ''}`;
             if (!seenSignatures.has(sig)) {
               seenSignatures.add(sig);
               uniqueData.push(item);
             } else {
-              // Flag extra duplicate document ID for permanent Firestore purge
               duplicatesToDelete.push(item.id);
             }
           }
 
-          // Background auto-purge duplicate documents from Firestore
           if (duplicatesToDelete.length > 0) {
             duplicatesToDelete.forEach(async (dupId) => {
               try {
@@ -288,9 +283,6 @@
         if (!Array.isArray(importedList) || importedList.length === 0) return 0;
         let addedCount = 0;
         
-        const existingMap = new Map();
-        history.forEach(item => existingMap.set(item.id, item));
-
         const newItemsToSave = [];
 
         for (const rawItem of importedList) {
@@ -481,6 +473,111 @@
       );
     };
 
+    const RecordItemCard = ({ item, activeItemId, setActiveItemId, editingId, setEditingId, editCost, setEditCost, editDateTime, setEditDateTime, systemDB }) => {
+      const isEditing = editingId === item.id;
+      const isFocused = activeItemId === item.id;
+      return (
+        <div 
+          key={item.id} 
+          onClick={(e) => {
+            if (isEditing) return;
+            setActiveItemId(isFocused ? null : item.id);
+          }} 
+          className={`p-3.5 rounded-2xl border transition-all cursor-pointer mb-2 ${isFocused ? 'bg-white/5 border-amber-500/50' : 'bg-black/40 border-white/5'}`}
+        >
+          {isEditing ? (
+            <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+              <h4 className="text-xs font-bold text-amber-400 uppercase">แก้ไขรายการชาร์จ</h4>
+              <input 
+                type="datetime-local" 
+                value={editDateTime} 
+                onChange={(e) => setEditDateTime(e.target.value)} 
+                className="w-full bg-[#050B14] border border-white/10 text-amber-300 rounded-xl px-3 py-1.5 text-xs font-mono" 
+              />
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400 font-bold">฿</span>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  value={editCost} 
+                  onChange={(e) => setEditCost(e.target.value)} 
+                  className="w-full bg-[#050B14] border border-white/10 text-amber-300 rounded-xl px-3 py-1.5 text-right font-mono text-sm font-bold" 
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingId(null);
+                  }} 
+                  className="px-3 py-1 bg-white/10 text-xs rounded-lg hover:bg-white/20"
+                >
+                  ยกเลิก
+                </button>
+                <button 
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    const ts = editDateTime ? new Date(editDateTime).getTime() : item.timestamp;
+                    const validTs = isNaN(ts) ? item.timestamp : ts;
+                    await systemDB.updateRecord(item.id, Number(editCost) || 0, validTs);
+                    setEditingId(null); 
+                    setActiveItemId(null);
+                  }} 
+                  className="px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs rounded-lg font-bold hover:bg-amber-500/30"
+                >
+                  บันทึก
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="text-[10px] text-white/40 font-bold uppercase mb-1">
+                    {new Date(item.timestamp).toLocaleDateString('th-TH', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} น.
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${item.chargerType==='DC'?'bg-cyan-500/20 text-cyan-300':'bg-fuchsia-500/20 text-fuchsia-300'}`}>
+                      {item.chargerType} {item.power}
+                    </span>
+                    <span className="text-xs font-bold text-white/80">{item.startSoC}% → {item.targetSoC}%</span>
+                  </div>
+                </div>
+                <span className="text-base font-black text-amber-300 font-mono">฿{Number(item.cost).toFixed(2)}</span>
+              </div>
+              {isFocused && (
+                <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-white/5" onClick={(e) => e.stopPropagation()}>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(item.id); 
+                      setEditCost(Number(item.cost).toFixed(2));
+                      const d = new Date(item.timestamp);
+                      const tz = d.getTimezoneOffset() * 60000;
+                      setEditDateTime((new Date(d.getTime() - tz)).toISOString().slice(0, 16));
+                    }} 
+                    className="p-1.5 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg text-blue-400 flex items-center gap-1 text-[10px] uppercase font-bold"
+                  >
+                    <Icon name="edit" className="w-3.5 h-3.5" /> แก้ไข
+                  </button>
+                  <button 
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await systemDB.deleteRecord(item.id); 
+                      setActiveItemId(null);
+                    }} 
+                    className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[10px] uppercase font-bold"
+                  >
+                    <Icon name="trash" className="w-3.5 h-3.5" /> ลบ
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      );
+    };
+
     function App() {
       const [appAlert, setAppAlert] = useState(null);
       const systemDB = useSystemData(setAppAlert);
@@ -505,6 +602,7 @@
       const [pricePerUnit, setPricePerUnit] = useState(4.5);
 
       const [historyTab, setHistoryTab] = useState("records");
+      const [selectedMonthFilter, setSelectedMonthFilter] = useState("ALL"); // "ALL" or "YYYY-MM"
       const [expandedMonthKey, setExpandedMonthKey] = useState(null);
       const [activeItemId, setActiveItemId] = useState(null);
       const [editingId, setEditingId] = useState(null);
@@ -537,8 +635,15 @@
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       }, []);
 
-      const currentMonthGroup = useMemo(() => groupedHistory.find(g => g.key === currentMonthKey), [groupedHistory, currentMonthKey]);
-      const currentMonthLabel = useMemo(() => new Date().toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }), []);
+      const filteredRecords = useMemo(() => {
+        if (selectedMonthFilter === 'ALL') return systemDB.history;
+        const targetGroup = groupedHistory.find(g => g.key === selectedMonthFilter);
+        return targetGroup ? targetGroup.items : [];
+      }, [systemDB.history, groupedHistory, selectedMonthFilter]);
+
+      const filteredTotalCost = useMemo(() => {
+        return filteredRecords.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
+      }, [filteredRecords]);
 
       const schedule = useMemo(() => {
         if (calcDetails.error || (!calcDetails.hours && !calcDetails.minutes)) return null;
@@ -936,7 +1041,7 @@
             </div>
           )}
 
-          {/* History Modal Overlay */}
+          {}
           {showHistory && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
               <div className="bg-[#120F24] border border-white/10 w-full max-w-md h-[85vh] flex flex-col rounded-[32px] overflow-hidden shadow-2xl">
@@ -949,11 +1054,14 @@
                 {/* Master Accumulated Sum Header */}
                 <div className="p-5 bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border-b border-white/5 text-center">
                   <div className="text-[10px] text-emerald-400/70 font-bold uppercase mb-1">
-                    {historyTab === 'records' ? 'ยอดใช้จ่ายสะสมเดือนนี้' : 'ยอดใช้จ่ายสะสมทั้งหมด'}
+                    {historyTab === 'records' 
+                      ? (selectedMonthFilter === 'ALL' ? 'ยอดใช้จ่ายสะสมทั้งหมด' : `ยอดใช้จ่ายเดือน ${groupedHistory.find(g => g.key === selectedMonthFilter)?.label || ''}`) 
+                      : 'ยอดใช้จ่ายสะสมทั้งหมด'
+                    }
                   </div>
                   <div className="text-3xl font-black font-mono text-transparent bg-clip-text bg-gradient-to-b from-white via-emerald-200 to-emerald-400 drop-shadow-md">
                     ฿{historyTab === 'records' 
-                      ? (currentMonthGroup ? currentMonthGroup.total : 0).toFixed(2)
+                      ? filteredTotalCost.toFixed(2)
                       : systemDB.history.reduce((sum, item) => sum + (Number(item.cost)||0), 0).toFixed(2)
                     }
                   </div>
@@ -963,12 +1071,29 @@
                 <div className="px-4 py-2.5 bg-white/5 border-b border-white/5 space-y-2">
                   <div className="flex bg-black/40 p-0.5 rounded-xl text-xs font-bold">
                     <button onClick={() => { setHistoryTab('records'); setActiveItemId(null); }} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 ${historyTab === 'records' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>
-                      <Icon name="list" className="w-3.5 h-3.5" /> รายการเดือนนี้
+                      <Icon name="list" className="w-3.5 h-3.5" /> รายการชาร์จ
                     </button>
                     <button onClick={() => { setHistoryTab('summary'); setActiveItemId(null); }} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 ${historyTab === 'summary' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>
                       <Icon name="chart" className="w-3.5 h-3.5" /> สรุปรายเดือน
                     </button>
                   </div>
+
+                  {/* Month Filter Selector in Records Tab */}
+                  {historyTab === 'records' && (
+                    <div className="flex items-center justify-between bg-black/30 p-1.5 rounded-xl border border-white/5 text-xs">
+                      <span className="text-purple-300/80 font-bold uppercase text-[10px] pl-1">เลือกเดือน:</span>
+                      <select 
+                        value={selectedMonthFilter} 
+                        onChange={(e) => setSelectedMonthFilter(e.target.value)}
+                        className="bg-[#050B14] border border-white/10 text-cyan-300 rounded-lg px-2.5 py-1 text-xs font-bold font-mono outline-none"
+                      >
+                        <option value="ALL">📅 รายการทั้งหมด ({systemDB.history.length} รายการ)</option>
+                        {groupedHistory.map(g => (
+                          <option key={g.key} value={g.key}>{g.label} ({g.items.length} รายการ)</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   
                   {/* Recalculate & Undo Toolbar */}
                   <div className="flex gap-2 pt-1">
@@ -982,7 +1107,7 @@
                     )}
                   </div>
 
-                  {/* 📥 Backup Export & Import Toolbar */}
+                  {/* Backup Export & Import Toolbar */}
                   <div className="flex gap-2 pt-1 border-t border-white/5">
                     <button onClick={handleExportBackup} className="flex-1 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/30 rounded-xl text-[10px] font-bold uppercase flex items-center justify-center gap-1 transition-all">
                       <Icon name="download" className="w-3.5 h-3.5" /> 📥 Export Backup (JSON)
@@ -999,112 +1124,31 @@
                   {historyTab === 'records' ? (
                     <div>
                       <div className="flex justify-between text-xs font-bold text-cyan-300 uppercase border-b border-white/10 pb-2 mb-3">
-                        <span>เดือนปัจจุบัน ({currentMonthLabel})</span>
-                        <span className="font-mono text-emerald-400">฿{currentMonthGroup ? currentMonthGroup.total.toFixed(2) : "0.00"}</span>
+                        <span>
+                          {selectedMonthFilter === 'ALL' 
+                            ? 'รายการทั้งหมดทุกเดือน' 
+                            : (groupedHistory.find(g => g.key === selectedMonthFilter)?.label || '')}
+                        </span>
+                        <span className="font-mono text-emerald-400">฿{filteredTotalCost.toFixed(2)}</span>
                       </div>
-                      {!currentMonthGroup || currentMonthGroup.items.length === 0 ? (
-                        <div className="text-center text-white/30 py-12 text-xs">ไม่มีรายการชาร์จในเดือนนี้</div>
+                      {filteredRecords.length === 0 ? (
+                        <div className="text-center text-white/30 py-12 text-xs">ไม่มีรายการชาร์จในตัวกรองนี้</div>
                       ) : (
-                        currentMonthGroup.items.map(item => {
-                          const isEditing = editingId === item.id;
-                          const isFocused = activeItemId === item.id;
-                          return (
-                            <div 
-                              key={item.id} 
-                              onClick={(e) => {
-                                if (isEditing) return;
-                                setActiveItemId(isFocused ? null : item.id);
-                              }} 
-                              className={`p-3.5 rounded-2xl border transition-all cursor-pointer mb-2 ${isFocused ? 'bg-white/5 border-amber-500/50' : 'bg-black/40 border-white/5'}`}
-                            >
-                              {isEditing ? (
-                                <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
-                                  <h4 className="text-xs font-bold text-amber-400 uppercase">แก้ไขรายการชาร์จ</h4>
-                                  <input 
-                                    type="datetime-local" 
-                                    value={editDateTime} 
-                                    onChange={(e) => setEditDateTime(e.target.value)} 
-                                    className="w-full bg-[#050B14] border border-white/10 text-amber-300 rounded-xl px-3 py-1.5 text-xs font-mono" 
-                                  />
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-amber-400 font-bold">฿</span>
-                                    <input 
-                                      type="number" 
-                                      step="0.01" 
-                                      value={editCost} 
-                                      onChange={(e) => setEditCost(e.target.value)} 
-                                      className="w-full bg-[#050B14] border border-white/10 text-amber-300 rounded-xl px-3 py-1.5 text-right font-mono text-sm font-bold" 
-                                    />
-                                  </div>
-                                  <div className="flex justify-end gap-2 pt-2">
-                                    <button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEditingId(null);
-                                      }} 
-                                      className="px-3 py-1 bg-white/10 text-xs rounded-lg hover:bg-white/20"
-                                    >
-                                      ยกเลิก
-                                    </button>
-                                    <button 
-                                      onClick={async (e) => {
-                                        e.stopPropagation();
-                                        const ts = editDateTime ? new Date(editDateTime).getTime() : item.timestamp;
-                                        const validTs = isNaN(ts) ? item.timestamp : ts;
-                                        await systemDB.updateRecord(item.id, Number(editCost) || 0, validTs);
-                                        setEditingId(null); 
-                                        setActiveItemId(null);
-                                      }} 
-                                      className="px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs rounded-lg font-bold hover:bg-amber-500/30"
-                                    >
-                                      บันทึก
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
-                                  <div className="flex justify-between items-start">
-                                    <div>
-                                      <div className="text-[10px] text-white/40 font-bold uppercase mb-1">{new Date(item.timestamp).toLocaleDateString('th-TH', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} น.</div>
-                                      <div className="flex items-center gap-2">
-                                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${item.chargerType==='DC'?'bg-cyan-500/20 text-cyan-300':'bg-fuchsia-500/20 text-fuchsia-300'}`}>{item.chargerType} {item.power}</span>
-                                        <span className="text-xs font-bold text-white/80">{item.startSoC}% → {item.targetSoC}%</span>
-                                      </div>
-                                    </div>
-                                    <span className="text-base font-black text-amber-300 font-mono">฿{Number(item.cost).toFixed(2)}</span>
-                                  </div>
-                                  {isFocused && (
-                                    <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-white/5" onClick={(e) => e.stopPropagation()}>
-                                      <button 
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setEditingId(item.id); 
-                                          setEditCost(Number(item.cost).toFixed(2));
-                                          const d = new Date(item.timestamp);
-                                          const tz = d.getTimezoneOffset() * 60000;
-                                          setEditDateTime((new Date(d.getTime() - tz)).toISOString().slice(0, 16));
-                                        }} 
-                                        className="p-1.5 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg text-blue-400 flex items-center gap-1 text-[10px] uppercase font-bold"
-                                      >
-                                        <Icon name="edit" className="w-3.5 h-3.5" /> แก้ไข
-                                      </button>
-                                      <button 
-                                        onClick={async (e) => {
-                                          e.stopPropagation();
-                                          await systemDB.deleteRecord(item.id); 
-                                          setActiveItemId(null);
-                                        }} 
-                                        className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[10px] uppercase font-bold"
-                                      >
-                                        <Icon name="trash" className="w-3.5 h-3.5" /> ลบ
-                                      </button>
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          );
-                        })
+                        filteredRecords.map(item => (
+                          <RecordItemCard 
+                            key={item.id} 
+                            item={item} 
+                            activeItemId={activeItemId} 
+                            setActiveItemId={setActiveItemId} 
+                            editingId={editingId} 
+                            setEditingId={setEditingId} 
+                            editCost={editCost} 
+                            setEditCost={setEditCost} 
+                            editDateTime={editDateTime} 
+                            setEditDateTime={setEditDateTime} 
+                            systemDB={systemDB} 
+                          />
+                        ))
                       )}
                     </div>
                   ) : (
@@ -1135,14 +1179,24 @@
                                 <span className="font-bold font-mono text-amber-300">฿{avg.toFixed(2)}</span>
                               </div>
                             </div>
+                            {/* Fully Interactive & Editable Cards inside Expanded Summary Month */}
                             {isExpanded && (
                               <div className="p-3 bg-[#0a0815]/60 space-y-2">
-                                <h4 className="text-[10px] text-cyan-400 font-bold uppercase">รายการชาร์จทั้งหมด</h4>
+                                <h4 className="text-[10px] text-cyan-400 font-bold uppercase mb-2">รายการชาร์จทั้งหมด (คลิกเพื่อแก้ไข/ลบ)</h4>
                                 {group.items.map(item => (
-                                  <div key={item.id} className="p-2 bg-black/40 rounded-xl text-xs flex justify-between">
-                                    <span>{new Date(item.timestamp).toLocaleDateString('th-TH')} ({item.startSoC}% → {item.targetSoC}%)</span>
-                                    <span className="font-mono text-amber-300 font-bold">฿{Number(item.cost).toFixed(2)}</span>
-                                  </div>
+                                  <RecordItemCard 
+                                    key={item.id} 
+                                    item={item} 
+                                    activeItemId={activeItemId} 
+                                    setActiveItemId={setActiveItemId} 
+                                    editingId={editingId} 
+                                    setEditingId={setEditingId} 
+                                    editCost={editCost} 
+                                    setEditCost={setEditCost} 
+                                    editDateTime={editDateTime} 
+                                    setEditDateTime={setEditDateTime} 
+                                    systemDB={systemDB} 
+                                  />
                                 ))}
                               </div>
                             )}
