@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (Edit & Delete Fixed)</title>
+  <title>Geely EX2 Charging Tracker</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -123,9 +123,21 @@
         if (savedData) { 
           try { 
             const parsed = JSON.parse(savedData);
-            const cleaned = parsed.map(item => ({ ...item, id: String(item.id) }));
+            let needsResave = false;
+            const cleaned = parsed.map((item, idx) => {
+              if (!item.id || item.id === 'undefined' || item.id === 'null') {
+                needsResave = true;
+                return { ...item, id: 'loc_' + (item.timestamp || Date.now()) + '_' + idx + '_' + Math.random().toString(36).substring(2, 7) };
+              }
+              return { ...item, id: String(item.id) };
+            });
             setHistory(cleaned); 
-          } catch(e){} 
+            if (needsResave) {
+              localStorage.setItem('geely_ex2_history', JSON.stringify(cleaned));
+            }
+          } catch(e){ setHistory([]); } 
+        } else {
+          setHistory([]);
         }
         setUser({ uid: 'local_user', isAnonymous: true });
         setStorageMode('local');
@@ -161,6 +173,7 @@
             const parsed = JSON.parse(localData);
             if (Array.isArray(parsed) && parsed.length > 0) {
               isMigratingRef.current = true;
+              // Clear local storage BEFORE upload loop so old items can never re-migrate on reload
               localStorage.removeItem('geely_ex2_history');
               for (const item of parsed) {
                 const { id, ...recordBody } = item;
@@ -252,8 +265,8 @@
       };
 
       const addRecord = async (record) => {
-        const newRecord = { id: String(Date.now()), ...record };
-        if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+        const newRecord = { id: 'loc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...record };
+        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           localStorage.removeItem('geely_ex2_history');
           try { await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), record); return; } catch(e){}
         }
@@ -264,16 +277,32 @@
 
       const deleteRecord = async (id) => {
         const targetId = String(id);
+        const itemToDelete = history.find(item => String(item.id) === targetId);
         const updated = history.filter(item => String(item.id) !== targetId);
+        
+        // Optimistic state update
         setHistory(updated);
 
-        if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           localStorage.removeItem('geely_ex2_history');
           try {
             await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId));
+            
+            // Delete matching duplicate documents in Firestore if any exist
+            if (itemToDelete) {
+              const targetSig = `${itemToDelete.timestamp}_${itemToDelete.cost}_${itemToDelete.startSoC}_${itemToDelete.targetSoC}`;
+              history.forEach(async (other) => {
+                const otherSig = `${other.timestamp}_${other.cost}_${other.startSoC}_${other.targetSoC}`;
+                if (String(other.id) !== targetId && otherSig === targetSig) {
+                  try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', String(other.id)));
+                  } catch(err){}
+                }
+              });
+            }
           } catch(e) {
             console.error("Cloud delete error", e);
-            onAlertTriggered?.({ title: "ลบใน Cloud ไม่สำเร็จ", message: "ลบในเครื่องแล้ว แต่ไม่สามารถลบจาก Cloud ได้: " + e.message });
+            onAlertTriggered?.({ title: "ลบใน Cloud ไม่สำเร็จ", message: "ไม่สามารถลบจาก Cloud ได้: " + e.message });
           }
         } else {
           localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
@@ -288,7 +317,7 @@
         const updated = history.map(item => String(item.id) === targetId ? { ...item, cost: numericCost, timestamp: numericTs } : item).sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
         setHistory(updated);
 
-        if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           localStorage.removeItem('geely_ex2_history');
           try {
             await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
@@ -297,7 +326,7 @@
             });
           } catch(e) {
             console.error("Cloud update error", e);
-            onAlertTriggered?.({ title: "บันทึกใน Cloud ไม่สำเร็จ", message: "บันทึกในเครื่องแล้ว แต่ไม่สามารถอัปเดตใน Cloud ได้: " + e.message });
+            onAlertTriggered?.({ title: "บันทึกใน Cloud ไม่สำเร็จ", message: "ไม่สามารถอัปเดตใน Cloud ได้: " + e.message });
           }
         } else {
           localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
@@ -321,10 +350,10 @@
             pricePerUnit: Number(rawItem.pricePerUnit) || 4.5
           };
 
-          if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+          if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
             await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanItem);
           } else {
-            newItemsToSave.push({ id: String(Date.now() + Math.random()), ...cleanItem });
+            newItemsToSave.push({ id: 'imp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...cleanItem });
           }
           addedCount++;
         }
@@ -338,73 +367,7 @@
         return addedCount;
       };
 
-      const recalculateAllHistory = async () => {
-        const updated = history.map(item => {
-          const prev = item.previousCost !== undefined && item.previousCost !== null ? item.previousCost : item.cost;
-          const startSoC = item.startSoC || 0;
-          const targetSoC = item.targetSoC || 100;
-          const chargerType = item.chargerType || 'AC';
-          const price = Number(item.pricePerUnit) || 4.5;
-          const energyNeeded = EV_SPECS.CAPACITY * ((targetSoC - startSoC) / 100);
-
-          let cost = 0;
-          if (chargerType === 'AC') {
-            const timeHours = energyNeeded / (EV_SPECS.MAX_AC_POWER * 0.94);
-            cost = ((energyNeeded / EV_SPECS.AC_COST_EFFICIENCY) + (timeHours * EV_SPECS.AC_VAMPIRE_DRAIN_KW)) * price;
-          } else {
-            cost = (energyNeeded / EV_SPECS.DC_COST_EFFICIENCY) * price;
-          }
-
-          return { ...item, previousCost: prev, cost: Number(cost.toFixed(2)) };
-        });
-
-        setHistory(updated);
-
-        if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
-          localStorage.removeItem('geely_ex2_history');
-          try {
-            for (const item of updated) {
-              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', String(item.id)), {
-                cost: item.cost,
-                previousCost: item.previousCost
-              });
-            }
-          } catch(e) { console.error("Cloud bulk update error", e); }
-        } else {
-          localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
-        }
-      };
-
-      const undoRecalculateHistory = async () => {
-        const updated = history.map(item => {
-          if (item.previousCost !== undefined && item.previousCost !== null) {
-            const restoredCost = item.previousCost;
-            const { previousCost, ...rest } = item;
-            return { ...rest, cost: restoredCost };
-          }
-          return item;
-        });
-
-        setHistory(updated);
-
-        if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
-          localStorage.removeItem('geely_ex2_history');
-          try {
-            for (const item of history) {
-              if (item.previousCost !== undefined && item.previousCost !== null) {
-                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', String(item.id)), {
-                  cost: item.previousCost,
-                  previousCost: null
-                });
-              }
-            }
-          } catch(e) { console.error("Cloud undo error", e); }
-        } else {
-          localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
-        }
-      };
-
-      return { user, history, isReady, storageMode, isAuthLoading, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord, importRecords, recalculateAllHistory, undoRecalculateHistory };
+      return { user, history, isReady, storageMode, isAuthLoading, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord, importRecords };
     }
 
     function useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC) {
@@ -590,7 +553,8 @@
                   <button 
                     onClick={async (e) => {
                       e.stopPropagation();
-                      await systemDB.deleteRecord(itemIdStr); 
+                      const targetId = String(item.id);
+                      await systemDB.deleteRecord(targetId); 
                       setActiveItemId(null);
                     }} 
                     className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-rose-500/20"
@@ -629,8 +593,13 @@
       const [pricePerUnit, setPricePerUnit] = useState(4.5);
 
       const [historyTab, setHistoryTab] = useState("records");
-      const [selectedMonthFilter, setSelectedMonthFilter] = useState("ALL"); // "ALL" or "YYYY-MM"
+      const [selectedMonthFilter, setSelectedMonthFilter] = useState("ALL");
       const [expandedMonthKey, setExpandedMonthKey] = useState(null);
+
+      const getCurrentMonthKey = () => {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      };
       const [activeItemId, setActiveItemId] = useState(null);
       const [editingId, setEditingId] = useState(null);
       const [editCost, setEditCost] = useState("");
@@ -1102,21 +1071,33 @@
 
                   {/* Month Filter Selector in Records Tab */}
                   {historyTab === 'records' && (
-                    <div className="flex items-center justify-between bg-black/30 p-1.5 rounded-xl border border-white/5 text-xs">
-                      <span className="text-purple-300/80 font-bold uppercase text-[10px] pl-1">เลือกเดือน:</span>
+                    <div className="flex items-center justify-between gap-1.5 bg-black/30 p-1.5 rounded-xl border border-white/5 text-xs">
+                      <div className="flex gap-1">
+                        <button 
+                          onClick={() => setSelectedMonthFilter('ALL')} 
+                          className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-all ${selectedMonthFilter === 'ALL' ? 'bg-cyan-500 text-black' : 'bg-white/5 text-gray-400 hover:text-white'}`}
+                        >
+                          ทั้งหมด
+                        </button>
+                        <button 
+                          onClick={() => setSelectedMonthFilter(getCurrentMonthKey())} 
+                          className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-all ${selectedMonthFilter === getCurrentMonthKey() ? 'bg-fuchsia-500 text-black font-black' : 'bg-fuchsia-500/10 text-fuchsia-300 border border-fuchsia-500/20'}`}
+                        >
+                          ⚡ เดือนนี้
+                        </button>
+                      </div>
                       <select 
                         value={selectedMonthFilter} 
                         onChange={(e) => setSelectedMonthFilter(e.target.value)}
-                        className="bg-[#050B14] border border-white/10 text-cyan-300 rounded-lg px-2.5 py-1 text-xs font-bold font-mono outline-none"
+                        className="bg-[#050B14] border border-white/10 text-cyan-300 rounded-lg px-2 py-1 text-[10px] font-bold font-mono outline-none max-w-[130px]"
                       >
-                        <option value="ALL">📅 รายการทั้งหมด ({systemDB.history.length} รายการ)</option>
+                        <option value="ALL">📅 ทุกเดือน ({systemDB.history.length})</option>
                         {groupedHistory.map(g => (
-                          <option key={g.key} value={g.key}>{g.label} ({g.items.length} รายการ)</option>
+                          <option key={g.key} value={g.key}>{g.label} ({g.items.length})</option>
                         ))}
                       </select>
                     </div>
                   )}
-
 
                   {/* Backup Export & Import Toolbar */}
                   <div className="flex gap-2 pt-1 border-t border-white/5">
@@ -1190,7 +1171,6 @@
                                 <span className="font-bold font-mono text-amber-300">฿{avg.toFixed(2)}</span>
                               </div>
                             </div>
-                            {/* Fully Interactive & Editable Cards inside Expanded Summary Month */}
                             {isExpanded && (
                               <div className="p-3 bg-[#0a0815]/60 space-y-2">
                                 <h4 className="text-[10px] text-cyan-400 font-bold uppercase mb-2">รายการชาร์จทั้งหมด (คลิกเพื่อแก้ไข/ลบ)</h4>
