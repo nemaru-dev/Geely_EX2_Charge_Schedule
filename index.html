@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (Default AC 30-80%)</title>
+  <title>Geely EX2 Charging Tracker (Infinite Loop Fixed)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -68,7 +68,7 @@
     const Icon = ({ name, className = "w-5 h-5" }) => {
       const paths = {
         zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />,
-        clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>,
+        clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 16 14" /></>,
         wallet: <><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-8" /><path d="M18 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" /></>,
         save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></>,
         history: <><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></>,
@@ -102,6 +102,7 @@
       const [isReady, setIsReady] = useState(false);
       const [storageMode, setStorageMode] = useState('local'); 
       const [isAuthLoading, setIsAuthLoading] = useState(false);
+      const isMigratingRef = useRef(false);
 
       const loadLocalData = () => {
         const savedData = localStorage.getItem('geely_ex2_history');
@@ -131,24 +132,32 @@
         }
 
         const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
-        return onSnapshot(colRef, async (snapshot) => {
+
+        // Safe One-Time Local Storage Migration outside onSnapshot
+        const migrateLocalData = async () => {
+          if (isMigratingRef.current) return;
+          const localData = localStorage.getItem('geely_ex2_history');
+          if (!localData) return;
+          try {
+            const parsed = JSON.parse(localData);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              isMigratingRef.current = true;
+              localStorage.removeItem('geely_ex2_history'); // Clear immediately to prevent loop
+              for (const item of parsed) {
+                const { id, ...recordBody } = item;
+                await addDoc(colRef, recordBody);
+              }
+            }
+          } catch(e) { console.error("Auto migration error", e); }
+          finally { isMigratingRef.current = false; }
+        };
+
+        migrateLocalData();
+
+        return onSnapshot(colRef, (snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => b.timestamp - a.timestamp);
           setHistory(data);
           setIsReady(true);
-
-          const localData = localStorage.getItem('geely_ex2_history');
-          if (localData) {
-            try {
-              const parsed = JSON.parse(localData);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                for (const item of parsed) {
-                  const { id, ...recordBody } = item;
-                  await addDoc(colRef, recordBody);
-                }
-                localStorage.removeItem('geely_ex2_history');
-              }
-            } catch(e) { console.error("Auto migration error", e); }
-          }
         }, () => { setStorageMode('local'); loadLocalData(); });
       }, [user, storageMode]);
 
@@ -389,7 +398,7 @@
       const [calibVoltage, setCalibVoltage] = useState(229); 
       const [calibOBC, setCalibOBC] = useState(94); 
 
-      // ⚡ Default Initial State updated to AC 10A, 30% -> 80%
+      // ⚡ Default Initial State: AC 10A, 30% -> 80%
       const [currentSoC, setCurrentSoC] = useState(30);
       const [targetSoC, setTargetSoC] = useState(80);
       const [chargerType, setChargerType] = useState('AC');
