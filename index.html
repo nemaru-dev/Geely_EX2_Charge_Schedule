@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (DC Exact Match)</title>
+  <title>Geely EX2 Charging Tracker (Jan 2026 Rates)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -659,12 +659,15 @@
               </div>
 
               {chargerType === 'DC' && (
-                <div className="bg-black/20 p-2 rounded-xl border border-white/5">
-                  <span className="block text-[10px] font-bold text-cyan-400 text-center mb-1 uppercase">ช่วงเวลาใช้บริการตู้ชาร์จ (EV Station PluZ / PEA / BANGCHAK)</span>
+                <div className="bg-black/20 p-2.5 rounded-xl border border-white/5 space-y-1.5">
+                  <span className="block text-[10px] font-bold text-cyan-400 text-center uppercase">ช่วงเวลาใช้บริการตู้ชาร์จ (Time of Use - TOU)</span>
                   <div className="flex p-0.5 bg-[#120F24] rounded-lg">
-                    <button onClick={() => setPricePerUnit(8.2)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[7.9, 8.2, 8.4, 9.4].includes(pricePerUnit) ? 'bg-fuchsia-500 text-black' : 'text-gray-400'}`}>☀️ On-Peak</button>
-                    <button onClick={() => setPricePerUnit(5.9)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[5.9, 6.6, 6.9, 7.1, 8.1].includes(pricePerUnit) ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>🌙 Off-Peak / Promo</button>
+                    <button onClick={() => setPricePerUnit(7.5)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[6.9, 7.5, 7.7, 8.8].includes(pricePerUnit) ? 'bg-fuchsia-500 text-black' : 'text-gray-400'}`}>☀️ On-Peak</button>
+                    <button onClick={() => setPricePerUnit(5.5)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[4.5, 5.5, 5.8, 6.0].includes(pricePerUnit) ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>🌙 Off-Peak / Promo</button>
                   </div>
+                  <span className="block text-[8px] text-gray-400 text-center font-medium">
+                    { [6.9, 7.5, 7.7, 8.8].includes(pricePerUnit) ? '☀️ On-Peak: จันทร์-ศุกร์ 09:00 - 22:00 น.' : '🌙 Off-Peak: จันทร์-ศุกร์ 22:00 - 09:00 น. & เสาร์-อาทิตย์/วันหยุด' }
+                  </span>
                 </div>
               )}
 
@@ -681,10 +684,10 @@
                 ) : (
                   <div className="grid grid-cols-4 gap-1 mb-3">
                     {(() => {
-                      const isOnPeak = [7.9, 8.2, 8.4, 9.4].includes(pricePerUnit);
+                      const isOnPeak = [6.9, 7.5, 7.7, 8.8].includes(pricePerUnit);
                       const dcPresets = isOnPeak 
-                        ? [ {l: 'ตู้ 40-180kW', v: 7.9}, {l: 'ตู้ 180-200', v: 8.2}, {l: 'EV HUB/Fast', v: 8.4}, {l: 'Ultra 240+', v: 9.4} ]
-                        : [ {l: 'Easy Super', v: 5.9}, {l: 'ตู้ 40-180kW', v: 6.6}, {l: 'ตู้ 180-200', v: 6.9}, {l: 'Ultra 240+', v: 8.1} ];
+                        ? [ {l: 'PEA / Rever', v: 6.9}, {l: 'Elex/MEA/PluZ', v: 7.5}, {l: 'PTT PluZ Max', v: 7.7}, {l: 'EA / PEA Max', v: 8.8} ]
+                        : [ {l: 'PEA (ถูกสุด)', v: 4.5}, {l: 'PEA / PluZ', v: 5.5}, {l: 'ReverSharger', v: 5.8}, {l: 'PluZ / Easy', v: 6.0} ];
                       return dcPresets.map(p => (
                         <button key={p.l} onClick={() => setPricePerUnit(p.v)} className={`py-1.5 px-0.5 text-[7px] font-bold rounded border ${pricePerUnit === p.v ? 'bg-emerald-500 text-black' : 'bg-black/40 border-white/5 text-emerald-400/70'}`}>
                           <span className="block truncate">{p.l}</span>
