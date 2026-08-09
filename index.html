@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (Recalculate & Undo)</title>
+  <title>Geely EX2 Charging Tracker (Default AC 30-80%)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -53,7 +53,6 @@
       return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     };
 
-    // ⚡ Exact High-Precision EV Specs Ratio (18.912 kWh / 21.728 kWh = 0.8703930412371134)
     const EV_SPECS = { 
       CAPACITY: 39.4, 
       MAX_AC_POWER: 6.6, 
@@ -225,7 +224,6 @@
         localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
       };
 
-      // ⚡ Recalculate all history items with Undo support
       const recalculateAllHistory = async () => {
         const updated = history.map(item => {
           const prev = item.previousCost !== undefined ? item.previousCost : item.cost;
@@ -391,9 +389,10 @@
       const [calibVoltage, setCalibVoltage] = useState(229); 
       const [calibOBC, setCalibOBC] = useState(94); 
 
-      const [currentSoC, setCurrentSoC] = useState(35);
-      const [targetSoC, setTargetSoC] = useState(83);
-      const [chargerType, setChargerType] = useState('DC');
+      // ⚡ Default Initial State updated to AC 10A, 30% -> 80%
+      const [currentSoC, setCurrentSoC] = useState(30);
+      const [targetSoC, setTargetSoC] = useState(80);
+      const [chargerType, setChargerType] = useState('AC');
       const [dcPower, setDcPower] = useState(120);
       const [acPower, setAcPower] = useState(7);
       const [acInputMode, setAcInputMode] = useState('A'); 
@@ -401,7 +400,7 @@
       const [scheduleMode, setScheduleMode] = useState('START_AT'); 
       const [targetTime, setTargetTime] = useState('06:30'); 
       const [userStartTime, setUserStartTime] = useState(getCurrentTimeStr()); 
-      const [pricePerUnit, setPricePerUnit] = useState(5.9);
+      const [pricePerUnit, setPricePerUnit] = useState(4.5);
 
       const [historyTab, setHistoryTab] = useState("records");
       const [expandedMonthKey, setExpandedMonthKey] = useState(null);
