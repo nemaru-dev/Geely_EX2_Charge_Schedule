@@ -116,25 +116,18 @@
       const [isReady, setIsReady] = useState(false);
       const [storageMode, setStorageMode] = useState('local'); 
       const [isAuthLoading, setIsAuthLoading] = useState(false);
-      const isMigratingRef = useRef(false);
+      const deletedIdsRef = useRef(new Set());
 
       const loadLocalData = () => {
         const savedData = localStorage.getItem('geely_ex2_history');
         if (savedData) { 
           try { 
             const parsed = JSON.parse(savedData);
-            let needsResave = false;
-            const cleaned = parsed.map((item, idx) => {
-              if (!item.id || item.id === 'undefined' || item.id === 'null') {
-                needsResave = true;
-                return { ...item, id: 'loc_' + (item.timestamp || Date.now()) + '_' + idx + '_' + Math.random().toString(36).substring(2, 7) };
-              }
-              return { ...item, id: String(item.id) };
-            });
+            const cleaned = parsed.map((item, idx) => ({
+              ...item,
+              id: item.id ? String(item.id) : ('loc_' + (item.timestamp || Date.now()) + '_' + idx)
+            })).filter(item => !deletedIdsRef.current.has(item.id));
             setHistory(cleaned); 
-            if (needsResave) {
-              localStorage.setItem('geely_ex2_history', JSON.stringify(cleaned));
-            }
           } catch(e){ setHistory([]); } 
         } else {
           setHistory([]);
@@ -164,57 +157,16 @@
         }
 
         const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
-
-        const migrateLocalData = async () => {
-          if (isMigratingRef.current) return;
-          const localData = localStorage.getItem('geely_ex2_history');
-          if (!localData) return;
-          try {
-            const parsed = JSON.parse(localData);
-            // Immediately wipe localStorage BEFORE adding docs so reloads will NEVER re-upload deleted records
-            localStorage.removeItem('geely_ex2_history');
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              isMigratingRef.current = true;
-              for (const item of parsed) {
-                const { id, ...recordBody } = item;
-                await addDoc(colRef, recordBody);
-              }
-            }
-          } catch(e) { console.error("Auto migration error", e); }
-          finally { isMigratingRef.current = false; }
-        };
-
-        migrateLocalData();
+        localStorage.removeItem('geely_ex2_history');
 
         return onSnapshot(colRef, (snapshot) => {
-          const rawData = snapshot.docs.map(doc => ({ ...doc.data(), id: String(doc.id) })).sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
-          
-          const uniqueData = [];
-          const seenSignatures = new Set();
-          const duplicatesToDelete = [];
+          const rawData = snapshot.docs.map(docSnap => ({ 
+            ...docSnap.data(), 
+            id: String(docSnap.id) 
+          })).filter(item => !deletedIdsRef.current.has(item.id));
 
-          for (const item of rawData) {
-            const sig = `${item.timestamp}_${item.cost}_${item.startSoC}_${item.targetSoC}_${item.chargerType || ''}_${item.power || ''}`;
-            if (!seenSignatures.has(sig)) {
-              seenSignatures.add(sig);
-              uniqueData.push(item);
-            } else {
-              duplicatesToDelete.push(item.id);
-            }
-          }
-
-          if (duplicatesToDelete.length > 0) {
-            duplicatesToDelete.forEach(async (dupId) => {
-              try {
-                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', String(dupId)));
-              } catch(e) { console.error("Cloud duplicate purge error", e); }
-            });
-          }
-
-          // WIPE local storage while in Cloud mode to prevent ghost resurrections
-          localStorage.removeItem('geely_ex2_history');
-
-          setHistory(uniqueData);
+          rawData.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+          setHistory(rawData);
           setIsReady(true);
         }, (err) => { 
           console.error("Snapshot error:", err);
@@ -230,49 +182,36 @@
         }
         setIsAuthLoading(true);
         const provider = new GoogleAuthProvider();
-        
         try {
           if (auth.currentUser?.isAnonymous) {
-            try {
-              await linkWithPopup(auth.currentUser, provider);
-            } catch (linkErr) {
+            try { await linkWithPopup(auth.currentUser, provider); } 
+            catch (linkErr) {
               if (linkErr.code === 'auth/credential-already-in-use' || linkErr.code === 'auth/email-already-in-use') {
                 const credential = GoogleAuthProvider.credentialFromError(linkErr);
-                if (credential) {
-                  await signInWithCredential(auth, credential);
-                } else {
-                  await signInWithPopup(auth, provider);
-                }
-              } else {
-                throw linkErr;
-              }
+                if (credential) await signInWithCredential(auth, credential);
+                else await signInWithPopup(auth, provider);
+              } else { throw linkErr; }
             }
-          } else {
-            await signInWithPopup(auth, provider);
-          }
+          } else { await signInWithPopup(auth, provider); }
         } catch (e) {
           if (e.code !== 'auth/popup-closed-by-user') {
             onAlertTriggered({ title: "เข้าสู่ระบบไม่สำเร็จ", message: e.message });
           }
-        } finally { 
-          setIsAuthLoading(false); 
-        }
+        } finally { setIsAuthLoading(false); }
       };
 
       const handleSignOut = async () => {
         if (!auth) return;
-        try {
-          await signOut(auth);
-          loadLocalData();
-        } catch (e) { console.error("SignOut Error", e); }
+        try { await signOut(auth); loadLocalData(); } catch (e) {}
       };
 
       const addRecord = async (record) => {
-        const newRecord = { id: 'loc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...record };
+        const cleanRecord = { ...record };
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           localStorage.removeItem('geely_ex2_history');
-          try { await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), record); return; } catch(e){}
+          try { await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanRecord); return; } catch(e){}
         }
+        const newRecord = { id: 'loc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...cleanRecord };
         const updated = [newRecord, ...history].sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
         setHistory(updated);
         localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
@@ -280,78 +219,40 @@
 
       const deleteRecord = async (id) => {
         const targetId = String(id);
-        const itemToDelete = history.find(item => String(item.id) === targetId);
+        deletedIdsRef.current.add(targetId);
 
-        // 1. Instant React state update (Optimistic UI update)
-        setHistory(prev => prev.filter(item => {
-          if (String(item.id) === targetId) return false;
-          if (itemToDelete) {
-            const sameTs = Math.abs(Number(item.timestamp) - Number(itemToDelete.timestamp)) < 1000;
-            const sameCost = Math.abs(Number(item.cost) - Number(itemToDelete.cost)) < 0.05;
-            const sameStart = Number(item.startSoC) === Number(itemToDelete.startSoC);
-            const sameTarget = Number(item.targetSoC) === Number(itemToDelete.targetSoC);
-            if (sameTs && sameCost && sameStart && sameTarget) return false;
-          }
-          return true;
-        }));
+        // 1. Optimistic UI update
+        setHistory(prev => prev.filter(item => String(item.id) !== targetId));
 
-        // 2. Local Storage update (ONLY if in local mode!)
+        // 2. Local Storage update
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
           const currentLocal = localStorage.getItem('geely_ex2_history');
           if (currentLocal) {
             try {
               const parsed = JSON.parse(currentLocal);
-              const filteredLocal = parsed.filter(item => {
-                if (String(item.id) === targetId) return false;
-                if (itemToDelete) {
-                  const sameTs = Math.abs(Number(item.timestamp) - Number(itemToDelete.timestamp)) < 1000;
-                  const sameCost = Math.abs(Number(item.cost) - Number(itemToDelete.cost)) < 0.05;
-                  const sameStart = Number(item.startSoC) === Number(itemToDelete.startSoC);
-                  const sameTarget = Number(item.targetSoC) === Number(itemToDelete.targetSoC);
-                  if (sameTs && sameCost && sameStart && sameTarget) return false;
-                }
-                return true;
-              });
-              localStorage.setItem('geely_ex2_history', JSON.stringify(filteredLocal));
+              const filtered = parsed.filter(item => String(item.id) !== targetId);
+              localStorage.setItem('geely_ex2_history', JSON.stringify(filtered));
             } catch(e){}
           }
         } else {
-          // In Cloud mode: wipe local storage completely so it won't resurrect on refresh
           localStorage.removeItem('geely_ex2_history');
         }
 
-        // 3. Cloud Firestore update
+        // 3. Cloud Firestore deletion (Direct doc ID delete)
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           try {
             if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
               await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId));
             }
-
+            // Also query snapshot to catch any matching document by ID or signature
             const snapshot = await getDocs(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'));
             snapshot.forEach(async (docSnap) => {
-              const data = docSnap.data();
-              const docId = String(docSnap.id);
-              
-              let isMatch = (docId === targetId);
-              if (!isMatch && itemToDelete) {
-                const sameTs = Math.abs(Number(data.timestamp) - Number(itemToDelete.timestamp)) < 1000;
-                const sameCost = Math.abs(Number(data.cost) - Number(itemToDelete.cost)) < 0.05;
-                const sameStart = Number(data.startSoC) === Number(itemToDelete.startSoC);
-                const sameTarget = Number(data.targetSoC) === Number(itemToDelete.targetSoC);
-                if (sameTs && sameCost && sameStart && sameTarget) isMatch = true;
-              }
-
-              if (isMatch) {
-                try {
-                  await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docSnap.id));
-                } catch(err) {
-                  console.error("Error deleting matching doc from cloud:", err);
-                }
+              if (String(docSnap.id) === targetId) {
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docSnap.id));
               }
             });
           } catch(e) {
-            console.error("Cloud delete error", e);
-            onAlertTriggered?.({ title: "ลบใน Cloud ไม่สำเร็จ", message: "ไม่สามารถลบจาก Cloud ได้: " + e.message });
+            console.error("Cloud delete error:", e);
           }
         }
       };
@@ -360,9 +261,7 @@
         const targetId = String(id);
         const numericCost = Number(newCost) || 0;
         const numericTs = Number(newTimestamp) || Date.now();
-        const targetItem = history.find(item => String(item.id) === targetId);
 
-        // 1. Instant React state update
         setHistory(prev => prev.map(item => {
           if (String(item.id) === targetId) {
             return { ...item, cost: numericCost, timestamp: numericTs };
@@ -370,18 +269,12 @@
           return item;
         }).sort((a,b) => Number(b.timestamp) - Number(a.timestamp)));
 
-        // 2. Local Storage update (ONLY if in local mode!)
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
           const currentLocal = localStorage.getItem('geely_ex2_history');
           if (currentLocal) {
             try {
               const parsed = JSON.parse(currentLocal);
-              const updatedLocal = parsed.map(item => {
-                if (String(item.id) === targetId) {
-                  return { ...item, cost: numericCost, timestamp: numericTs };
-                }
-                return item;
-              });
+              const updatedLocal = parsed.map(item => String(item.id) === targetId ? { ...item, cost: numericCost, timestamp: numericTs } : item);
               localStorage.setItem('geely_ex2_history', JSON.stringify(updatedLocal));
             } catch(e){}
           }
@@ -389,7 +282,6 @@
           localStorage.removeItem('geely_ex2_history');
         }
 
-        // 3. Cloud Firestore update
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           try {
             if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
@@ -397,26 +289,8 @@
                 cost: numericCost,
                 timestamp: numericTs
               });
-            } else if (targetItem) {
-              const snapshot = await getDocs(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'));
-              snapshot.forEach(async (docSnap) => {
-                const data = docSnap.data();
-                const sameTs = Math.abs(Number(data.timestamp) - Number(targetItem.timestamp)) < 1000;
-                const sameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
-                if (sameTs && sameCost) {
-                  try {
-                    await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docSnap.id), {
-                      cost: numericCost,
-                      timestamp: numericTs
-                    });
-                  } catch(e){}
-                }
-              });
             }
-          } catch(e) {
-            console.error("Cloud update error", e);
-            onAlertTriggered?.({ title: "บันทึกใน Cloud ไม่สำเร็จ", message: "ไม่สามารถอัปเดตใน Cloud ได้: " + e.message });
-          }
+          } catch(e) { console.error("Cloud update error", e); }
         }
       };
 
@@ -640,10 +514,9 @@
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
-                      const targetId = String(item.id);
                       setEditingId(null);
                       setActiveItemId(null);
-                      systemDB.deleteRecord(targetId); 
+                      systemDB.deleteRecord(itemIdStr); 
                     }} 
                     className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-rose-500/20"
                   >
