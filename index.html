@@ -155,8 +155,21 @@
         migrateLocalData();
 
         return onSnapshot(colRef, (snapshot) => {
-          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => b.timestamp - a.timestamp);
-          setHistory(data);
+          const rawData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => b.timestamp - a.timestamp);
+          
+          const uniqueData = [];
+          const seenKeys = new Set();
+          for (const item of rawData) {
+            const key = `${item.timestamp}_${item.startSoC}_${item.targetSoC}_${item.cost}`;
+            if (!seenKeys.has(key)) {
+              seenKeys.add(key);
+              uniqueData.push(item);
+            } else {
+              deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', item.id)).catch(()=>{});
+            }
+          }
+
+          setHistory(uniqueData);
           setIsReady(true);
         }, () => { setStorageMode('local'); loadLocalData(); });
       }, [user, storageMode]);
@@ -235,7 +248,7 @@
 
       const recalculateAllHistory = async () => {
         const updated = history.map(item => {
-          const prev = item.previousCost !== undefined ? item.previousCost : item.cost;
+          const prev = item.previousCost !== undefined && item.previousCost !== null ? item.previousCost : item.cost;
           const startSoC = item.startSoC || 0;
           const targetSoC = item.targetSoC || 100;
           const chargerType = item.chargerType || 'AC';
@@ -262,6 +275,34 @@
               });
             }
           } catch(e) { console.error("Cloud bulk update error", e); }
+          return;
+        }
+        setHistory(updated);
+        localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
+      };
+
+      const undoRecalculateHistory = async () => {
+        const updated = history.map(item => {
+          if (item.previousCost !== undefined && item.previousCost !== null) {
+            const restoredCost = item.previousCost;
+            const { previousCost, ...rest } = item;
+            return { ...rest, cost: restoredCost };
+          }
+          return item;
+        });
+
+        if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+          try {
+            for (const item of history) {
+              if (item.previousCost !== undefined && item.previousCost !== null) {
+                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', item.id), {
+                  cost: item.previousCost,
+                  previousCost: null
+                });
+              }
+            }
+          } catch(e) { console.error("Cloud undo error", e); }
+          return;
         }
         setHistory(updated);
         localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
