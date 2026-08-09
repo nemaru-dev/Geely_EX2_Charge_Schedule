@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (Auth & Sync Fixed)</title>
+  <title>Geely EX2 Charging Tracker (Cost Calculation Verified)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -126,7 +126,6 @@
           setHistory(data);
           setIsReady(true);
 
-          // Auto-migrate unsynced local records to Cloud upon first successful Google sign-in
           const localData = localStorage.getItem('geely_ex2_history');
           if (localData) {
             try {
@@ -156,7 +155,6 @@
             try {
               await linkWithPopup(auth.currentUser, provider);
             } catch (linkErr) {
-              // ⚡ Expert Fix: Handle existing Google Account credential gracefully
               if (linkErr.code === 'auth/credential-already-in-use' || linkErr.code === 'auth/email-already-in-use') {
                 const credential = GoogleAuthProvider.credentialFromError(linkErr);
                 if (credential) {
@@ -249,7 +247,10 @@
         }
 
         const totalMins = Math.round(timeHours * 60);
-        const cost = ((energyNeeded / EV_SPECS.COST_EFFICIENCY) + (timeHours * EV_SPECS.VAMPIRE_DRAIN_KW)) * (Number(pricePerUnit) || 0);
+
+        // ⚡ Cost Fix: Dynamically match user OBC efficiency calibration for AC, fallback to 0.90 for DC public charging
+        const effectiveCostEfficiency = chargerType === 'AC' ? (calibOBC / 100) : EV_SPECS.COST_EFFICIENCY;
+        const cost = ((energyNeeded / effectiveCostEfficiency) + (timeHours * EV_SPECS.VAMPIRE_DRAIN_KW)) * (Number(pricePerUnit) || 0);
 
         return { hours: Math.floor(totalMins / 60), minutes: totalMins % 60, actualPower, bottleneck, error: null, cost };
       }, [currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC]);
@@ -397,7 +398,7 @@
           targetSoC,
           chargerType,
           power: chargerType === 'AC' ? (acInputMode === 'A' ? `${acAmps}A` : `${acPower}kW`) : `${dcPower}kW`,
-          pricePerUnit
+          pricePerUnit: Number(pricePerUnit) || 4.5
         });
         setTimeout(() => setIsSaving(false), 500);
       };
@@ -420,7 +421,6 @@
                 <p className="text-[10px] text-purple-200/60 uppercase font-bold tracking-wider">HyperCharge Tracker</p>
               </div>
               <div className="flex gap-2">
-                {/* Auth Profile Button */}
                 <button 
                   onClick={() => setShowAuthModal(true)} 
                   className={`p-2.5 rounded-xl border transition-all relative ${systemDB.storageMode === 'cloud' ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' : 'bg-white/5 border-white/10 text-cyan-300'}`}
@@ -636,7 +636,6 @@
               )}
             </div>
 
-            {/* Cost & Save */}
             <div className="bg-[#0f172a]/90 p-5 rounded-2xl border border-white/10 space-y-4">
               <div className="text-center">
                 <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block mb-1">ประมาณการค่าไฟ</span>
@@ -647,31 +646,31 @@
                 <div className="bg-black/20 p-2 rounded-xl border border-white/5">
                   <span className="block text-[10px] font-bold text-cyan-400 text-center mb-1 uppercase">ช่วงเวลาใช้บริการตู้ชาร์จ (EV Station PluZ / PEA)</span>
                   <div className="flex p-0.5 bg-[#120F24] rounded-lg">
-                    <button onClick={() => setPricePerUnit(8.2)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[7.9, 8.2, 8.4, 9.4].includes(pricePerUnit) ? 'bg-fuchsia-500 text-black' : 'text-gray-400'}`}>☀️ On-Peak</button>
-                    <button onClick={() => setPricePerUnit(6.9)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[6.6, 6.9, 7.1, 8.1].includes(pricePerUnit) ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>🌙 Off-Peak</button>
+                    <button onClick={() => setPricePerUnit(8.2)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[7.9, 8.2, 8.4, 9.4].includes(Number(pricePerUnit)) ? 'bg-fuchsia-500 text-black' : 'text-gray-400'}`}>☀️ On-Peak</button>
+                    <button onClick={() => setPricePerUnit(6.9)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[6.6, 6.9, 7.1, 8.1].includes(Number(pricePerUnit)) ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>🌙 Off-Peak</button>
                   </div>
                 </div>
               )}
 
               <div className="text-center">
                 <label className="block text-xs font-bold text-emerald-400/80 mb-1 uppercase">ค่าไฟ / หน่วย (บาท)</label>
-                <input type="number" step="0.1" value={pricePerUnit} onChange={(e) => setPricePerUnit(Number(e.target.value))} className="w-28 mx-auto bg-[#050B14] border border-white/10 text-emerald-300 rounded-xl px-3 py-2 text-center font-mono text-lg font-black block mb-3" />
+                <input type="number" step="0.1" value={pricePerUnit} onChange={(e) => setPricePerUnit(e.target.value)} className="w-28 mx-auto bg-[#050B14] border border-white/10 text-emerald-300 rounded-xl px-3 py-2 text-center font-mono text-lg font-black block mb-3" />
 
                 {chargerType === 'AC' ? (
                   <div className="grid grid-cols-4 gap-1 mb-3">
                     {acPresets.map(p => (
-                      <button key={p.label} onClick={() => setPricePerUnit(p.val)} className={`py-1.5 px-1 text-[8px] font-bold rounded border ${pricePerUnit === p.val ? 'bg-emerald-500 text-black' : 'bg-black/40 border-white/5 text-emerald-400/70'}`}>{p.label}</button>
+                      <button key={p.label} onClick={() => setPricePerUnit(p.val)} className={`py-1.5 px-1 text-[8px] font-bold rounded border ${Number(pricePerUnit) === p.val ? 'bg-emerald-500 text-black' : 'bg-black/40 border-white/5 text-emerald-400/70'}`}>{p.label}</button>
                     ))}
                   </div>
                 ) : (
                   <div className="grid grid-cols-4 gap-1 mb-3">
                     {(() => {
-                      const isOnPeak = [7.9, 8.2, 8.4, 9.4].includes(pricePerUnit);
+                      const isOnPeak = [7.9, 8.2, 8.4, 9.4].includes(Number(pricePerUnit));
                       const dcPresets = isOnPeak 
                         ? [ {l: 'ตู้ 40-180kW', v: 7.9}, {l: 'ตู้ 180-200', v: 8.2}, {l: 'EV HUB/Fast', v: 8.4}, {l: 'Ultra 240+', v: 9.4} ]
                         : [ {l: 'ตู้ 40-180kW', v: 6.6}, {l: 'ตู้ 180-200', v: 6.9}, {l: 'EV HUB/Fast', v: 7.1}, {l: 'Ultra 240+', v: 8.1} ];
                       return dcPresets.map(p => (
-                        <button key={p.l} onClick={() => setPricePerUnit(p.v)} className={`py-1.5 px-0.5 text-[7px] font-bold rounded border ${pricePerUnit === p.v ? 'bg-emerald-500 text-black' : 'bg-black/40 border-white/5 text-emerald-400/70'}`}>
+                        <button key={p.l} onClick={() => setPricePerUnit(p.v)} className={`py-1.5 px-0.5 text-[7px] font-bold rounded border ${Number(pricePerUnit) === p.v ? 'bg-emerald-500 text-black' : 'bg-black/40 border-white/5 text-emerald-400/70'}`}>
                           <span className="block truncate">{p.l}</span>
                           <span className="block font-black">฿{p.v}</span>
                         </button>
@@ -688,7 +687,6 @@
 
           </div>
 
-          {/* Auth Modal Overlay */}
           {showAuthModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
               <div className="bg-[#120F24] border border-white/10 w-full max-w-sm rounded-[28px] overflow-hidden p-6 text-center space-y-4 shadow-2xl">
@@ -727,7 +725,6 @@
             </div>
           )}
 
-          {/* History Overlay Modal */}
           {showHistory && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
               <div className="bg-[#120F24] border border-white/10 w-full max-w-md h-[85vh] flex flex-col rounded-[32px] overflow-hidden shadow-2xl">
@@ -737,7 +734,6 @@
                   <button onClick={() => setShowHistory(false)} className="text-white/50 hover:text-white text-xl font-bold">✕</button>
                 </div>
 
-                {/* Master Accumulated Sum Header (Emerald Green Theme) */}
                 <div className="p-5 bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border-b border-white/5 text-center">
                   <div className="text-[10px] text-emerald-400/70 font-bold uppercase mb-1">
                     {historyTab === 'records' ? 'ยอดใช้จ่ายสะสมเดือนนี้' : 'ยอดใช้จ่ายสะสมทั้งหมด'}
@@ -750,7 +746,6 @@
                   </div>
                 </div>
 
-                {/* Tab Switcher */}
                 <div className="px-4 py-2.5 bg-white/5 border-b border-white/5">
                   <div className="flex bg-black/40 p-0.5 rounded-xl text-xs font-bold">
                     <button onClick={() => { setHistoryTab('records'); setActiveItemId(null); }} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 ${historyTab === 'records' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>
@@ -762,7 +757,6 @@
                   </div>
                 </div>
 
-                {/* Scrollable Feed List */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3 history-scroll">
                   {historyTab === 'records' ? (
                     <div>
@@ -805,7 +799,6 @@
                                         <span className="text-xs font-bold text-white/80">{item.startSoC}% → {item.targetSoC}%</span>
                                       </div>
                                     </div>
-                                    {/* Individual Transaction Item Cost: Amber Gold Theme */}
                                     <span className="text-base font-black text-amber-300 font-mono">฿{Number(item.cost).toFixed(2)}</span>
                                   </div>
                                   {isFocused && (
