@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (Infinite Loop Fixed)</title>
+  <title>Geely EX2 Charging Tracker</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -133,7 +133,6 @@
 
         const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
 
-        // Safe One-Time Local Storage Migration outside onSnapshot
         const migrateLocalData = async () => {
           if (isMigratingRef.current) return;
           const localData = localStorage.getItem('geely_ex2_history');
@@ -142,7 +141,7 @@
             const parsed = JSON.parse(localData);
             if (Array.isArray(parsed) && parsed.length > 0) {
               isMigratingRef.current = true;
-              localStorage.removeItem('geely_ex2_history'); // Clear immediately to prevent loop
+              localStorage.removeItem('geely_ex2_history');
               for (const item of parsed) {
                 const { id, ...recordBody } = item;
                 await addDoc(colRef, recordBody);
@@ -308,30 +307,6 @@
         localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
       };
 
-      const undoRecalculateHistory = async () => {
-        const updated = history.map(item => {
-          if (item.previousCost !== undefined) {
-            const restoredCost = item.previousCost;
-            const { previousCost, ...rest } = item;
-            return { ...rest, cost: restoredCost };
-          }
-          return item;
-        });
-
-        if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
-          try {
-            for (const item of updated) {
-              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', item.id), {
-                cost: item.cost,
-                previousCost: null
-              });
-            }
-          } catch(e) { console.error("Cloud undo error", e); }
-        }
-        setHistory(updated);
-        localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
-      };
-
       return { user, history, isReady, storageMode, isAuthLoading, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord, recalculateAllHistory, undoRecalculateHistory };
     }
 
@@ -439,7 +414,7 @@
       const [calibVoltage, setCalibVoltage] = useState(229); 
       const [calibOBC, setCalibOBC] = useState(94); 
 
-      // ⚡ Default Initial State: AC 10A, 30% -> 80%
+      // ⚡ Default Initial State: AC 10A, 30% -> 80%, Rate 4.5
       const [currentSoC, setCurrentSoC] = useState(30);
       const [targetSoC, setTargetSoC] = useState(80);
       const [chargerType, setChargerType] = useState('AC');
@@ -884,7 +859,7 @@
                     </button>
                   </div>
                   
-                  {/* ⚡ Bulk Recalculate & Undo Toolbar */}
+                  {/* Bulk Recalculate & Undo Toolbar */}
                   <div className="flex gap-2 pt-1">
                     <button onClick={systemDB.recalculateAllHistory} className="flex-1 py-2 bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-fuchsia-300 border border-fuchsia-500/30 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all">
                       🔄 คำนวณประวัติใหม่ตามสูตรปัจจุบัน
