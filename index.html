@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Geely EX2 Charging Tracker (Older Data Editing Fixed)</title>
+  <title>Geely EX2 Charging Tracker (Edit & Delete Fixed)</title>
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -80,7 +80,7 @@
     const Icon = ({ name, className = "w-5 h-5" }) => {
       const paths = {
         zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />,
-        clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>,
+        clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 16 14" /></>,
         wallet: <><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-8" /><path d="M18 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" /></>,
         save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></>,
         history: <><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></>,
@@ -254,6 +254,7 @@
       const addRecord = async (record) => {
         const newRecord = { id: String(Date.now()), ...record };
         if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+          localStorage.removeItem('geely_ex2_history');
           try { await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), record); return; } catch(e){}
         }
         const updated = [newRecord, ...history].sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
@@ -265,15 +266,17 @@
         const targetId = String(id);
         const updated = history.filter(item => String(item.id) !== targetId);
         setHistory(updated);
-        localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
 
         if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+          localStorage.removeItem('geely_ex2_history');
           try {
             await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId));
           } catch(e) {
             console.error("Cloud delete error", e);
             onAlertTriggered?.({ title: "ลบใน Cloud ไม่สำเร็จ", message: "ลบในเครื่องแล้ว แต่ไม่สามารถลบจาก Cloud ได้: " + e.message });
           }
+        } else {
+          localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
         }
       };
 
@@ -284,9 +287,9 @@
 
         const updated = history.map(item => String(item.id) === targetId ? { ...item, cost: numericCost, timestamp: numericTs } : item).sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
         setHistory(updated);
-        localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
 
         if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+          localStorage.removeItem('geely_ex2_history');
           try {
             await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
               cost: numericCost,
@@ -296,6 +299,8 @@
             console.error("Cloud update error", e);
             onAlertTriggered?.({ title: "บันทึกใน Cloud ไม่สำเร็จ", message: "บันทึกในเครื่องแล้ว แต่ไม่สามารถอัปเดตใน Cloud ได้: " + e.message });
           }
+        } else {
+          localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
         }
       };
 
@@ -354,9 +359,9 @@
         });
 
         setHistory(updated);
-        localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
 
         if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+          localStorage.removeItem('geely_ex2_history');
           try {
             for (const item of updated) {
               await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', String(item.id)), {
@@ -365,6 +370,8 @@
               });
             }
           } catch(e) { console.error("Cloud bulk update error", e); }
+        } else {
+          localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
         }
       };
 
@@ -379,9 +386,9 @@
         });
 
         setHistory(updated);
-        localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
 
         if (storageMode === 'cloud' && db && user?.uid !== 'local_user' && !user?.isAnonymous) {
+          localStorage.removeItem('geely_ex2_history');
           try {
             for (const item of history) {
               if (item.previousCost !== undefined && item.previousCost !== null) {
@@ -392,6 +399,8 @@
               }
             }
           } catch(e) { console.error("Cloud undo error", e); }
+        } else {
+          localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
         }
       };
 
