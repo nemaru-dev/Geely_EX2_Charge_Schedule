@@ -173,7 +173,6 @@
             const parsed = JSON.parse(localData);
             if (Array.isArray(parsed) && parsed.length > 0) {
               isMigratingRef.current = true;
-              // Clear local storage BEFORE upload loop so old items can never re-migrate on reload
               localStorage.removeItem('geely_ex2_history');
               for (const item of parsed) {
                 const { id, ...recordBody } = item;
@@ -278,9 +277,19 @@
       const deleteRecord = async (id) => {
         const targetId = String(id);
         const itemToDelete = history.find(item => String(item.id) === targetId);
-        const updated = history.filter(item => String(item.id) !== targetId);
         
-        // Optimistic state update
+        // Filter out target item AND all items matching its content signature to purge duplicate ghosts
+        const targetSig = itemToDelete ? `${itemToDelete.timestamp}_${itemToDelete.cost}_${itemToDelete.startSoC}_${itemToDelete.targetSoC}` : null;
+        const updated = history.filter(item => {
+          if (String(item.id) === targetId) return false;
+          if (targetSig) {
+            const sig = `${item.timestamp}_${item.cost}_${item.startSoC}_${item.targetSoC}`;
+            if (sig === targetSig) return false;
+          }
+          return true;
+        });
+
+        // Optimistic UI state update
         setHistory(updated);
 
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
@@ -288,17 +297,17 @@
           try {
             await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId));
             
-            // Delete matching duplicate documents in Firestore if any exist
+            // Delete any duplicate documents in Firestore with matching data signatures
             if (itemToDelete) {
-              const targetSig = `${itemToDelete.timestamp}_${itemToDelete.cost}_${itemToDelete.startSoC}_${itemToDelete.targetSoC}`;
-              history.forEach(async (other) => {
+              const matchingDocs = history.filter(other => {
                 const otherSig = `${other.timestamp}_${other.cost}_${other.startSoC}_${other.targetSoC}`;
-                if (String(other.id) !== targetId && otherSig === targetSig) {
-                  try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', String(other.id)));
-                  } catch(err){}
-                }
+                return otherSig === targetSig;
               });
+              for (const other of matchingDocs) {
+                try {
+                  await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', String(other.id)));
+                } catch(err){}
+              }
             }
           } catch(e) {
             console.error("Cloud delete error", e);
@@ -507,11 +516,11 @@
                   ยกเลิก
                 </button>
                 <button 
-                  onClick={async (e) => {
+                  onClick={(e) => {
                     e.stopPropagation();
                     const ts = editDateTime ? new Date(editDateTime).getTime() : item.timestamp;
                     const validTs = isNaN(ts) ? item.timestamp : ts;
-                    await systemDB.updateRecord(itemIdStr, Number(editCost) || 0, validTs);
+                    systemDB.updateRecord(itemIdStr, Number(editCost) || 0, validTs);
                     setEditingId(null); 
                     setActiveItemId(null);
                   }} 
@@ -554,8 +563,9 @@
                     onClick={async (e) => {
                       e.stopPropagation();
                       const targetId = String(item.id);
-                      await systemDB.deleteRecord(targetId); 
+                      setEditingId(null);
                       setActiveItemId(null);
+                      await systemDB.deleteRecord(targetId); 
                     }} 
                     className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-rose-500/20"
                   >
