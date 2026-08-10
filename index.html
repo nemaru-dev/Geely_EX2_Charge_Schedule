@@ -116,7 +116,9 @@
       const [isReady, setIsReady] = useState(false);
       const [storageMode, setStorageMode] = useState('local'); 
       const [isAuthLoading, setIsAuthLoading] = useState(false);
+      
       const deletedIdsRef = useRef(new Set());
+      const deletedSignaturesRef = useRef(new Set()); // ชุดกรองลายนิ้วมือ ป้องกันข้อมูลผีเด้งกลับ
 
       const loadLocalData = () => {
         const savedData = localStorage.getItem('geely_ex2_history');
@@ -126,7 +128,12 @@
             const cleaned = parsed.map((item, idx) => ({
               ...item,
               id: item.id ? String(item.id) : ('loc_' + (item.timestamp || Date.now()) + '_' + idx)
-            })).filter(item => !deletedIdsRef.current.has(item.id));
+            })).filter(item => {
+              if (deletedIdsRef.current.has(item.id)) return false;
+              const sig = `${Number(item.timestamp)}_${Number(item.cost)}`;
+              if (deletedSignaturesRef.current.has(sig)) return false;
+              return true;
+            });
             setHistory(cleaned); 
           } catch(e){ setHistory([]); } 
         } else {
@@ -163,7 +170,13 @@
           const rawData = snapshot.docs.map(docSnap => ({ 
             ...docSnap.data(), 
             id: String(docSnap.id) 
-          })).filter(item => !deletedIdsRef.current.has(item.id));
+          })).filter(item => {
+            // บล็อกไม่ให้ Firebase ดึงข้อมูลที่เพิ่งลบไปกลับมาแสดงเด็ดขาด
+            if (deletedIdsRef.current.has(item.id)) return false;
+            const sig = `${Number(item.timestamp)}_${Number(item.cost)}`;
+            if (deletedSignaturesRef.current.has(sig)) return false;
+            return true;
+          });
 
           rawData.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
           setHistory(rawData);
@@ -218,11 +231,20 @@
       };
 
       const deleteRecord = async (id, targetItem) => {
-        const targetId = String(id);
+        const targetId = String(id).trim();
         deletedIdsRef.current.add(targetId);
+        
+        // จดจำลายนิ้วมือของข้อมูลที่ลบ เพื่อบล็อกไม่ให้ผีเด้งกลับมาตอน Refresh
+        if (targetItem) {
+          deletedSignaturesRef.current.add(`${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`);
+        }
 
-        // 1. Optimistic UI update
-        setHistory(prev => prev.filter(item => String(item.id) !== targetId));
+        // 1. Optimistic UI update: หายวับไปจากจอทันที
+        setHistory(prev => prev.filter(item => {
+          if (String(item.id) === targetId) return false;
+          if (targetItem && (`${Number(item.timestamp)}_${Number(item.cost)}` === `${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`)) return false;
+          return true;
+        }));
 
         // 2. Local Storage update
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
@@ -230,7 +252,11 @@
           if (currentLocal) {
             try {
               const parsed = JSON.parse(currentLocal);
-              const filtered = parsed.filter(item => String(item.id) !== targetId);
+              const filtered = parsed.filter(item => {
+                if (String(item.id) === targetId) return false;
+                if (targetItem && (`${Number(item.timestamp)}_${Number(item.cost)}` === `${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`)) return false;
+                return true;
+              });
               localStorage.setItem('geely_ex2_history', JSON.stringify(filtered));
             } catch(e){}
           }
@@ -238,48 +264,64 @@
           localStorage.removeItem('geely_ex2_history');
         }
 
-        // 3. Cloud Firestore deletion (Direct doc ID delete + Duplicate Purge)
+        // 3. Cloud Firestore Brute-force Deletion
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           try {
-            if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
-              await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId));
-            }
-            
-            // Also query snapshot to catch and purge ANY duplicate ghost documents by data signature
-            if (targetItem) {
-              const snapshot = await getDocs(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'));
-              const deletePromises = [];
-              snapshot.forEach((docSnap) => {
-                const data = docSnap.data();
-                // Fuzzy match for duplicates (same timestamp, same cost, same targetSoC)
+            const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
+            const snapshot = await getDocs(colRef);
+            const deletePromises = [];
+
+            snapshot.forEach((docSnap) => {
+              const docId = String(docSnap.id);
+              const data = docSnap.data();
+              let shouldDelete = false;
+
+              // กวาดล้างทั้ง ID ตรง และข้อมูลที่ลายนิ้วมือเหมือนกันเป๊ะ (ตัวก๊อปปี้)
+              if (docId === targetId) {
+                shouldDelete = true;
+              } else if (targetItem && data) {
                 const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
                 const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
-                const isSameSoC = Number(data.targetSoC) === Number(targetItem.targetSoC);
-                
-                // If it matches perfectly, kill the duplicate
-                if (isSameTime && isSameCost && isSameSoC) {
-                  deletedIdsRef.current.add(String(docSnap.id)); // Block from snapshot instantly
-                  deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docSnap.id)));
+                if (isSameTime && isSameCost) {
+                  shouldDelete = true;
                 }
-              });
-              if (deletePromises.length > 0) {
-                await Promise.all(deletePromises);
               }
+
+              if (shouldDelete) {
+                deletedIdsRef.current.add(docId);
+                deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
+              }
+            });
+
+            if (deletePromises.length > 0) {
+              await Promise.all(deletePromises);
+            } else {
+              // สำรองความปลอดภัยเผื่อหาใน snapshot ไม่เจอ
+              await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId));
             }
           } catch(e) {
             console.error("Cloud delete error:", e);
+            onAlertTriggered({ 
+              title: "ลบข้อมูลใน Cloud ไม่สำเร็จ", 
+              message: `ข้อผิดพลาด: ${e.message}\n(ข้อมูลหายไปจากหน้าจอแล้ว แต่ในเซิร์ฟเวอร์ยังลบไม่ได้ โปรดตรวจสอบอินเทอร์เน็ต)` 
+            });
           }
         }
       };
 
       const updateRecord = async (id, newCost, newTimestamp, targetItem) => {
-        const targetId = String(id);
+        const targetId = String(id).trim();
         const numericCost = Number(newCost) || 0;
         const numericTs = Number(newTimestamp) || Date.now();
 
+        // บล็อกข้อมูลเก่าทิ้ง เพื่อไม่ให้ตัวก๊อปปี้เก่าเด้งกลับมา
+        if (targetItem) {
+          deletedSignaturesRef.current.add(`${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`);
+        }
+
         setHistory(prev => prev.map(item => {
-          if (String(item.id) === targetId) {
-            return { ...item, cost: numericCost, timestamp: numericTs };
+          if (String(item.id) === targetId || (targetItem && (`${Number(item.timestamp)}_${Number(item.cost)}` === `${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`))) {
+            return { ...item, id: targetId, cost: numericCost, timestamp: numericTs };
           }
           return item;
         }).sort((a,b) => Number(b.timestamp) - Number(a.timestamp)));
@@ -299,37 +341,49 @@
 
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           try {
-            if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
-              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
-                cost: numericCost,
-                timestamp: numericTs
-              });
-            }
-            
-            // Purge old duplicates so we don't have conflicting old data floating around
-            if (targetItem) {
-              const snapshot = await getDocs(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'));
-              const deletePromises = [];
-              snapshot.forEach((docSnap) => {
-                if (String(docSnap.id) !== targetId) { // Exclude the one we just updated
-                  const data = docSnap.data();
-                  const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
-                  const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
-                  if (isSameTime && isSameCost) {
-                    deletedIdsRef.current.add(String(docSnap.id));
-                    deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docSnap.id)));
-                  }
+            const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
+            const snapshot = await getDocs(colRef);
+            const deletePromises = [];
+            let foundPrimary = false;
+
+            snapshot.forEach((docSnap) => {
+              const docId = String(docSnap.id);
+              if (docId === targetId) {
+                foundPrimary = true;
+              } else if (targetItem) {
+                const data = docSnap.data();
+                const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
+                const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
+                if (isSameTime && isSameCost) {
+                  deletedIdsRef.current.add(docId);
+                  deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
                 }
-              });
-              if (deletePromises.length > 0) {
-                await Promise.all(deletePromises);
               }
+            });
+
+            if (deletePromises.length > 0) await Promise.all(deletePromises);
+            
+            if (foundPrimary) {
+              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
+                cost: numericCost, timestamp: numericTs
+              });
+            } else if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
+              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
+                cost: numericCost, timestamp: numericTs
+              });
             }
-          } catch(e) { console.error("Cloud update error", e); }
+          } catch(e) { 
+            console.error("Cloud update error", e); 
+            onAlertTriggered({ 
+              title: "อัปเดตข้อมูลใน Cloud ไม่สำเร็จ", 
+              message: `ข้อผิดพลาด: ${e.message}` 
+            });
+          }
         }
       };
 
       const importRecords = async (importedList) => {
+        // ... functionality remains identical
         if (!Array.isArray(importedList) || importedList.length === 0) return 0;
         let addedCount = 0;
         const newItemsToSave = [];
