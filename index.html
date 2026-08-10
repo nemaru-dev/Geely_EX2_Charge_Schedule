@@ -217,7 +217,7 @@
         localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
       };
 
-      const deleteRecord = async (id) => {
+      const deleteRecord = async (id, targetItem) => {
         const targetId = String(id);
         deletedIdsRef.current.add(targetId);
 
@@ -238,26 +238,41 @@
           localStorage.removeItem('geely_ex2_history');
         }
 
-        // 3. Cloud Firestore deletion (Direct doc ID delete)
+        // 3. Cloud Firestore deletion (Direct doc ID delete + Duplicate Purge)
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           try {
             if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
               await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId));
             }
-            // Also query snapshot to catch any matching document by ID or signature
-            const snapshot = await getDocs(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'));
-            snapshot.forEach(async (docSnap) => {
-              if (String(docSnap.id) === targetId) {
-                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docSnap.id));
+            
+            // Also query snapshot to catch and purge ANY duplicate ghost documents by data signature
+            if (targetItem) {
+              const snapshot = await getDocs(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'));
+              const deletePromises = [];
+              snapshot.forEach((docSnap) => {
+                const data = docSnap.data();
+                // Fuzzy match for duplicates (same timestamp, same cost, same targetSoC)
+                const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
+                const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
+                const isSameSoC = Number(data.targetSoC) === Number(targetItem.targetSoC);
+                
+                // If it matches perfectly, kill the duplicate
+                if (isSameTime && isSameCost && isSameSoC) {
+                  deletedIdsRef.current.add(String(docSnap.id)); // Block from snapshot instantly
+                  deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docSnap.id)));
+                }
+              });
+              if (deletePromises.length > 0) {
+                await Promise.all(deletePromises);
               }
-            });
+            }
           } catch(e) {
             console.error("Cloud delete error:", e);
           }
         }
       };
 
-      const updateRecord = async (id, newCost, newTimestamp) => {
+      const updateRecord = async (id, newCost, newTimestamp, targetItem) => {
         const targetId = String(id);
         const numericCost = Number(newCost) || 0;
         const numericTs = Number(newTimestamp) || Date.now();
@@ -289,6 +304,26 @@
                 cost: numericCost,
                 timestamp: numericTs
               });
+            }
+            
+            // Purge old duplicates so we don't have conflicting old data floating around
+            if (targetItem) {
+              const snapshot = await getDocs(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'));
+              const deletePromises = [];
+              snapshot.forEach((docSnap) => {
+                if (String(docSnap.id) !== targetId) { // Exclude the one we just updated
+                  const data = docSnap.data();
+                  const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
+                  const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
+                  if (isSameTime && isSameCost) {
+                    deletedIdsRef.current.add(String(docSnap.id));
+                    deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docSnap.id)));
+                  }
+                }
+              });
+              if (deletePromises.length > 0) {
+                await Promise.all(deletePromises);
+              }
             }
           } catch(e) { console.error("Cloud update error", e); }
         }
@@ -472,7 +507,7 @@
                     e.stopPropagation();
                     const ts = editDateTime ? new Date(editDateTime).getTime() : item.timestamp;
                     const validTs = isNaN(ts) ? item.timestamp : ts;
-                    systemDB.updateRecord(itemIdStr, Number(editCost) || 0, validTs);
+                    systemDB.updateRecord(itemIdStr, Number(editCost) || 0, validTs, item);
                     setEditingId(null); 
                     setActiveItemId(null);
                   }} 
@@ -516,7 +551,7 @@
                       e.stopPropagation();
                       setEditingId(null);
                       setActiveItemId(null);
-                      systemDB.deleteRecord(itemIdStr); 
+                      systemDB.deleteRecord(itemIdStr, item); 
                     }} 
                     className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-rose-500/20"
                   >
