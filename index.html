@@ -120,14 +120,6 @@
       const deletedIdsRef = useRef(new Set());
       const deletedSignaturesRef = useRef(new Set());
 
-      // Timeout wrapper to prevent hanging promises
-      const runWithTimeout = (promise, ms = 8000) => {
-        return Promise.race([
-          promise,
-          new Promise((_, reject) => setTimeout(() => reject(new Error("NETWORK_TIMEOUT")), ms))
-        ]);
-      };
-
       const loadLocalData = () => {
         const savedData = localStorage.getItem('geely_ex2_history');
         if (savedData) { 
@@ -173,7 +165,7 @@
 
         const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
         
-        // Clear local storage completely in cloud mode to prevent duplicate resurrects
+        // Wipe local storage so it NEVER re-uploads old data
         localStorage.removeItem('geely_ex2_history'); 
 
         return onSnapshot(colRef, (snapshot) => {
@@ -227,20 +219,26 @@
         try { await signOut(auth); loadLocalData(); } catch (e) {}
       };
 
+      // ADD RECORD (Optimistic UI - No HANGING)
       const addRecord = async (record) => {
         const cleanRecord = { ...record };
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-          try { 
-            await runWithTimeout(addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanRecord)); 
-            return true; 
-          } catch(e) {
-            if (e.message === 'NETWORK_TIMEOUT') {
-              onAlertTriggered({ title: "Network Error", message: "เซิร์ฟเวอร์ไม่ตอบสนอง (Timeout) โปรดตรวจสอบอินเทอร์เน็ต" });
-            } else {
-              onAlertTriggered({ title: "Save Failed", message: `Firebase Rules Error: ${e.message}` });
-            }
-            return false;
-          }
+          
+          // 1. Instantly update UI with a temporary ID
+          const tempId = 'temp_' + Date.now();
+          const newRecord = { id: tempId, ...cleanRecord };
+          setHistory(prev => [newRecord, ...prev].sort((a,b) => Number(b.timestamp) - Number(a.timestamp)));
+
+          // 2. Background Sync (Fire-and-Forget)
+          addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanRecord)
+            .catch(error => {
+              console.error("Firebase Add Error:", error);
+              if (error.code === 'permission-denied') {
+                onAlertTriggered({ title: "Cloud Denied", message: "Firebase Rules ปฏิเสธการบันทึกข้อมูล (อาจหมดอายุ 30 วัน)" });
+              }
+            });
+          
+          return true;
         } else {
           const newRecord = { id: 'loc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...cleanRecord };
           const updated = [newRecord, ...history].sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
@@ -250,11 +248,12 @@
         }
       };
 
+      // DELETE RECORD (Optimistic UI - NO HANGING)
       const deleteRecord = async (id, targetItem) => {
         const targetId = String(id).trim();
         const idsToDelete = [targetId];
         
-        // Find ghost duplicates
+        // Find ghost duplicates locally
         history.forEach(item => {
           if (targetItem && String(item.id) !== targetId) {
             const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
@@ -265,40 +264,35 @@
           }
         });
 
-        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-          try {
-            const deletePromises = [];
-            for (const docId of idsToDelete) {
-              deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
-            }
-            if (deletePromises.length > 0) {
-              await runWithTimeout(Promise.all(deletePromises));
-            }
-          } catch (error) {
-            console.error("Firebase Delete Error:", error);
-            if (error.message === 'NETWORK_TIMEOUT') {
-              onAlertTriggered({ title: "Network Error", message: "ลบข้อมูลไม่สำเร็จ เซิร์ฟเวอร์ไม่ตอบสนอง (Timeout)" });
-            } else {
-              onAlertTriggered({ title: "Cloud Delete Denied", message: `Your Firebase Rules are blocking this action.\n\nDetails: ${error.message}` });
-            }
-            return false; // Stop execution
-          }
-        }
+        const uniqueIds = Array.from(new Set(idsToDelete));
 
-        // Apply UI deletion only if Cloud succeeded (or if local mode)
-        idsToDelete.forEach(dId => deletedIdsRef.current.add(dId));
+        // 1. OPTIMISTIC UI INSTANT WIPE (Blocks onSnapshot from bringing it back)
+        uniqueIds.forEach(dId => deletedIdsRef.current.add(dId));
         if (targetItem) {
           deletedSignaturesRef.current.add(`${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`);
         }
+        setHistory(prev => prev.filter(item => !uniqueIds.includes(String(item.id))));
 
-        setHistory(prev => prev.filter(item => !idsToDelete.includes(String(item.id))));
+        // 2. BACKGROUND SYNC (Fire-and-Forget)
+        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
+           uniqueIds.forEach(docId => {
+              deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId))
+                .catch(error => {
+                  console.error("Firebase Delete Error:", error);
+                  if (error.code === 'permission-denied') {
+                    onAlertTriggered({ title: "Cloud Denied", message: "Firebase Rules ของคุณหมดอายุ 30 วัน ทำให้การลบไม่สำเร็จบนเซิร์ฟเวอร์ โปรดอัปเดต Rules" });
+                  }
+                });
+           });
+        }
 
+        // 3. Local sync
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
           const currentLocal = localStorage.getItem('geely_ex2_history');
           if (currentLocal) {
             try {
               const parsed = JSON.parse(currentLocal);
-              const filtered = parsed.filter(item => !idsToDelete.includes(String(item.id)));
+              const filtered = parsed.filter(item => !uniqueIds.includes(String(item.id)));
               localStorage.setItem('geely_ex2_history', JSON.stringify(filtered));
             } catch(e){}
           }
@@ -307,6 +301,7 @@
         return true; 
       };
 
+      // UPDATE RECORD (Optimistic UI - NO HANGING)
       const updateRecord = async (id, newCost, newTimestamp, targetItem) => {
         const targetId = String(id).trim();
         const numericCost = Number(newCost) || 0;
@@ -322,40 +317,17 @@
             }
           }
         });
+        const uniqueIds = Array.from(new Set(idsToDelete));
 
-        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-          try {
-            const promises = [];
-            for (const docId of idsToDelete) {
-              if (docId !== targetId) {
-                promises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
-              }
-            }
-            promises.push(updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
-              cost: numericCost, timestamp: numericTs
-            }));
-            if (promises.length > 0) {
-              await runWithTimeout(Promise.all(promises));
-            }
-          } catch (error) {
-            console.error("Firebase Update Error:", error);
-            if (error.message === 'NETWORK_TIMEOUT') {
-              onAlertTriggered({ title: "Network Error", message: "แก้ไขข้อมูลไม่สำเร็จ เซิร์ฟเวอร์ไม่ตอบสนอง (Timeout)" });
-            } else {
-              onAlertTriggered({ title: "Cloud Edit Denied", message: `Your Firebase Rules are blocking this action.\n\nDetails: ${error.message}` });
-            }
-            return false;
-          }
-        }
-
-        idsToDelete.forEach(dId => deletedIdsRef.current.add(dId));
+        // 1. OPTIMISTIC UI INSTANT WIPE & UPDATE
+        uniqueIds.forEach(dId => deletedIdsRef.current.add(dId));
         if (targetItem) {
           deletedSignaturesRef.current.add(`${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`);
         }
-
+        
         setHistory(prev => {
           const next = prev.map(item => {
-            if (String(item.id) === targetId || idsToDelete.includes(String(item.id))) {
+            if (String(item.id) === targetId || uniqueIds.includes(String(item.id))) {
               return { ...item, id: targetId, cost: numericCost, timestamp: numericTs };
             }
             return item;
@@ -364,6 +336,24 @@
                      .sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
         });
 
+        // 2. BACKGROUND SYNC (Fire-and-Forget)
+        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
+            uniqueIds.forEach(docId => {
+              if (docId !== targetId) {
+                deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)).catch(e=>console.error(e));
+              }
+            });
+            updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
+              cost: numericCost, timestamp: numericTs
+            }).catch(error => {
+              console.error("Firebase Update Error:", error);
+              if (error.code === 'permission-denied') {
+                onAlertTriggered({ title: "Cloud Denied", message: "Firebase Rules หมดอายุ ทำให้แก้ไขไม่สำเร็จบนเซิร์ฟเวอร์" });
+              }
+            });
+        }
+
+        // 3. Local sync
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
           const currentLocal = localStorage.getItem('geely_ex2_history');
           if (currentLocal) {
@@ -396,7 +386,8 @@
           };
 
           if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-            await runWithTimeout(addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanItem));
+            // Background sync
+            addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanItem).catch(e=>console.error(e));
           } else {
             newItemsToSave.push({ id: 'imp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...cleanItem });
           }
