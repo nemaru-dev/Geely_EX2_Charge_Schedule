@@ -118,7 +118,7 @@
       const [isAuthLoading, setIsAuthLoading] = useState(false);
       
       const deletedIdsRef = useRef(new Set());
-      const deletedSignaturesRef = useRef(new Set()); // ชุดกรองลายนิ้วมือ ป้องกันข้อมูลผีเด้งกลับ
+      const deletedSignaturesRef = useRef(new Set());
 
       const loadLocalData = () => {
         const savedData = localStorage.getItem('geely_ex2_history');
@@ -164,14 +164,13 @@
         }
 
         const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
-        localStorage.removeItem('geely_ex2_history');
+        localStorage.removeItem('geely_ex2_history'); // Wipe local storage to prevent loops
 
         return onSnapshot(colRef, (snapshot) => {
           const rawData = snapshot.docs.map(docSnap => ({ 
             ...docSnap.data(), 
             id: String(docSnap.id) 
           })).filter(item => {
-            // บล็อกไม่ให้ Firebase ดึงข้อมูลที่เพิ่งลบไปกลับมาแสดงเด็ดขาด
             if (deletedIdsRef.current.has(item.id)) return false;
             const sig = `${Number(item.timestamp)}_${Number(item.cost)}`;
             if (deletedSignaturesRef.current.has(sig)) return false;
@@ -191,7 +190,7 @@
       const handleGoogleSignIn = async () => {
         if (!auth) return;
         if (window.self !== window.top) {
-          return onAlertTriggered({ title: "คำเตือนความปลอดภัย", message: "โปรดเปิดบน GitHub Pages โดยตรงเพื่อสิทธิ์การล็อกอิน" });
+          return onAlertTriggered({ title: "Security Warning", message: "Please open in a direct tab to login." });
         }
         setIsAuthLoading(true);
         const provider = new GoogleAuthProvider();
@@ -208,7 +207,7 @@
           } else { await signInWithPopup(auth, provider); }
         } catch (e) {
           if (e.code !== 'auth/popup-closed-by-user') {
-            onAlertTriggered({ title: "เข้าสู่ระบบไม่สำเร็จ", message: e.message });
+            onAlertTriggered({ title: "Login Failed", message: e.message });
           }
         } finally { setIsAuthLoading(false); }
       };
@@ -222,12 +221,18 @@
         const cleanRecord = { ...record };
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           localStorage.removeItem('geely_ex2_history');
-          try { await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanRecord); return; } catch(e){}
+          try { 
+            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanRecord); 
+            return; 
+          } catch(e){
+            onAlertTriggered({ title: "Save Failed", message: `Firebase Error: ${e.message}` });
+          }
+        } else {
+          const newRecord = { id: 'loc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...cleanRecord };
+          const updated = [newRecord, ...history].sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
+          setHistory(updated);
+          localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
         }
-        const newRecord = { id: 'loc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...cleanRecord };
-        const updated = [newRecord, ...history].sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
-        setHistory(updated);
-        localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
       };
 
       const deleteRecord = (id, targetItem) => {
@@ -238,7 +243,6 @@
           deletedSignaturesRef.current.add(`${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`);
         }
 
-        // ค้นหาข้อมูลแฝงจากหน่วยความจำ (History State) โดยไม่ต้องไป Await ดึงจาก Cloud ให้ค้าง
         const idsToDelete = [targetId];
         history.forEach(item => {
           if (targetItem && String(item.id) !== targetId) {
@@ -251,10 +255,9 @@
           }
         });
 
-        // 1. Optimistic UI update: เอาออกจากจอทันที
+        // Optimistic UI Update
         setHistory(prev => prev.filter(item => !idsToDelete.includes(String(item.id))));
 
-        // 2. Local Storage update
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
           const currentLocal = localStorage.getItem('geely_ex2_history');
           if (currentLocal) {
@@ -265,23 +268,26 @@
             } catch(e){}
           }
         } else {
-          localStorage.removeItem('geely_ex2_history');
-        }
-
-        // 3. Cloud Firestore Fire-and-Forget (ลบเบื้องหลัง ไม่ให้ UI ค้าง)
-        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-          idsToDelete.forEach(docId => {
-            if (!docId.startsWith('loc_') && !docId.startsWith('imp_')) {
-              deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId))
-                .catch(e => {
-                  console.error("Cloud delete error:", e);
-                  onAlertTriggered({ 
-                    title: "ลบใน Cloud ไม่สำเร็จ (Permission Denied)", 
-                    message: `ข้อมูลหายไปจากจอแล้ว แต่ในเซิร์ฟเวอร์ปฏิเสธการลบ\n\nโปรดตรวจสอบ Firestore Security Rules ของคุณว่าตั้งค่าให้อนุญาตการเขียน (write) หรือยังครับ` 
-                  });
+          localStorage.removeItem('geely_ex2_history'); // Keep clean in cloud mode
+          
+          // STRICT AWAIT CLOUD DELETION TO CATCH ERRORS
+          if (db && user?.uid) {
+            (async () => {
+              try {
+                for (const docId of idsToDelete) {
+                  if (!docId.startsWith('loc_') && !docId.startsWith('imp_')) {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId));
+                  }
+                }
+              } catch (error) {
+                console.error("Firebase Delete Error:", error);
+                onAlertTriggered({ 
+                  title: "Cloud Delete Failed", 
+                  message: `Firebase Security Rules denied the deletion.\n\nError: ${error.message}\n\nPlease check your Firebase Console rules.` 
                 });
-            }
-          });
+              }
+            })();
+          }
         }
       };
 
@@ -306,7 +312,7 @@
           }
         });
 
-        // 1. Optimistic Update (อัปเดตหน้าจอทันที)
+        // Optimistic UI update
         setHistory(prev => {
           const next = prev.map(item => {
             if (String(item.id) === targetId || idsToDelete.includes(String(item.id))) {
@@ -318,7 +324,6 @@
                      .sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
         });
 
-        // 2. Local Storage update
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
           const currentLocal = localStorage.getItem('geely_ex2_history');
           if (currentLocal) {
@@ -329,33 +334,37 @@
             } catch(e){}
           }
         } else {
-          localStorage.removeItem('geely_ex2_history');
-        }
-
-        // 3. Cloud Firestore Fire-and-Forget
-        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-          idsToDelete.forEach(docId => {
-            if (!docId.startsWith('loc_') && !docId.startsWith('imp_')) {
-              deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)).catch(e=>{});
-            }
-          });
-
-          if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
-            updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
-              cost: numericCost, timestamp: numericTs
-            }).catch(e => {
-              console.error("Cloud update error", e);
-              onAlertTriggered({ 
-                title: "อัปเดตข้อมูลใน Cloud ไม่สำเร็จ", 
-                message: `เซิร์ฟเวอร์ Firebase ปฏิเสธการบันทึกข้อมูล โปรดตรวจสอบ Firestore Security Rules ครับ` 
-              });
-            });
+          localStorage.removeItem('geely_ex2_history'); // Keep clean in cloud mode
+          
+          // STRICT AWAIT CLOUD UPDATE TO CATCH ERRORS
+          if (db && user?.uid) {
+            (async () => {
+              try {
+                // Delete duplicates
+                for (const docId of idsToDelete) {
+                  if (docId !== targetId && !docId.startsWith('loc_') && !docId.startsWith('imp_')) {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId));
+                  }
+                }
+                // Update primary document
+                if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
+                  await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
+                    cost: numericCost, timestamp: numericTs
+                  });
+                }
+              } catch (error) {
+                console.error("Firebase Update Error:", error);
+                onAlertTriggered({ 
+                  title: "Cloud Edit Failed", 
+                  message: `Firebase Security Rules denied the update.\n\nError: ${error.message}\n\nPlease check your Firebase Console rules.` 
+                });
+              }
+            })();
           }
         }
       };
 
       const importRecords = async (importedList) => {
-        // ... functionality remains identical
         if (!Array.isArray(importedList) || importedList.length === 0) return 0;
         let addedCount = 0;
         const newItemsToSave = [];
@@ -480,7 +489,7 @@
           <div className="bg-[#18152e] border border-white/10 rounded-2xl w-full max-w-sm p-6 text-center shadow-2xl">
             <h4 className="text-lg font-black text-rose-400 mb-2">{alertData.title}</h4>
             <p className="text-gray-300 text-sm whitespace-pre-wrap mb-6">{alertData.message}</p>
-            <button onClick={onClose} className="w-full py-2.5 bg-cyan-500 text-black font-bold rounded-xl text-sm">ตกลง</button>
+            <button onClick={onClose} className="w-full py-2.5 bg-cyan-500 text-black font-bold rounded-xl text-sm">OK</button>
           </div>
         </div>
       );
@@ -494,11 +503,11 @@
             <div className="w-14 h-14 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-rose-500/30">
               <Icon name="trash" className="w-6 h-6 text-rose-500" />
             </div>
-            <h4 className="text-lg font-black text-white mb-2">ยืนยันการลบข้อมูล</h4>
-            <p className="text-gray-400 text-[11px] mb-6">คุณต้องการลบประวัติการชาร์จยอด <span className="text-amber-400 font-mono font-bold text-sm">฿{Number(item.cost).toFixed(2)}</span> ใช่หรือไม่?<br/>(การดำเนินการนี้ไม่สามารถย้อนกลับได้)</p>
+            <h4 className="text-lg font-black text-white mb-2">Confirm Delete</h4>
+            <p className="text-gray-400 text-[11px] mb-6">Are you sure you want to delete this record of <span className="text-amber-400 font-mono font-bold text-sm">฿{Number(item.cost).toFixed(2)}</span>?<br/>(This action cannot be undone)</p>
             <div className="flex gap-3">
-              <button onClick={onCancel} className="flex-1 py-2.5 bg-white/5 border border-white/10 text-white font-bold rounded-xl text-xs hover:bg-white/10 transition-all">ยกเลิก</button>
-              <button onClick={onConfirm} className="flex-1 py-2.5 bg-rose-500/20 text-rose-400 border border-rose-500/50 font-bold rounded-xl text-xs hover:bg-rose-500/30 transition-all">ใช่, ลบเลย</button>
+              <button onClick={onCancel} className="flex-1 py-2.5 bg-white/5 border border-white/10 text-white font-bold rounded-xl text-xs hover:bg-white/10 transition-all">Cancel</button>
+              <button onClick={onConfirm} className="flex-1 py-2.5 bg-rose-500/20 text-rose-400 border border-rose-500/50 font-bold rounded-xl text-xs hover:bg-rose-500/30 transition-all">Yes, Delete</button>
             </div>
           </div>
         </div>
@@ -620,7 +629,6 @@
       const [calibVoltage, setCalibVoltage] = useState(229); 
       const [calibOBC, setCalibOBC] = useState(94); 
 
-      // Default State: AC 10A, 30% -> 80%, Rate 4.5
       const [currentSoC, setCurrentSoC] = useState(30);
       const [targetSoC, setTargetSoC] = useState(80);
       const [chargerType, setChargerType] = useState('AC');
@@ -1246,7 +1254,6 @@
             </div>
           )}
 
-          {}
           <ConfirmDeleteModal 
             item={itemToDelete} 
             onConfirm={() => {
