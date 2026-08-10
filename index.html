@@ -120,6 +120,14 @@
       const deletedIdsRef = useRef(new Set());
       const deletedSignaturesRef = useRef(new Set());
 
+      // Timeout wrapper to prevent hanging promises
+      const runWithTimeout = (promise, ms = 8000) => {
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error("NETWORK_TIMEOUT")), ms))
+        ]);
+      };
+
       const loadLocalData = () => {
         const savedData = localStorage.getItem('geely_ex2_history');
         if (savedData) { 
@@ -165,7 +173,7 @@
 
         const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
         
-        // Block 1: Clear local storage completely so it never re-uploads ghost data
+        // Clear local storage completely in cloud mode to prevent duplicate resurrects
         localStorage.removeItem('geely_ex2_history'); 
 
         return onSnapshot(colRef, (snapshot) => {
@@ -219,15 +227,18 @@
         try { await signOut(auth); loadLocalData(); } catch (e) {}
       };
 
-      // STRICT AWAIT METHOD: This returns false if it fails, blocking the UI from tricking the user.
       const addRecord = async (record) => {
         const cleanRecord = { ...record };
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           try { 
-            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanRecord); 
+            await runWithTimeout(addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanRecord)); 
             return true; 
           } catch(e) {
-            onAlertTriggered({ title: "Save Failed", message: `Firebase Rules Error: ${e.message}` });
+            if (e.message === 'NETWORK_TIMEOUT') {
+              onAlertTriggered({ title: "Network Error", message: "เซิร์ฟเวอร์ไม่ตอบสนอง (Timeout) โปรดตรวจสอบอินเทอร์เน็ต" });
+            } else {
+              onAlertTriggered({ title: "Save Failed", message: `Firebase Rules Error: ${e.message}` });
+            }
             return false;
           }
         } else {
@@ -239,7 +250,6 @@
         }
       };
 
-      // STRICT AWAIT METHOD: This returns false if it fails, keeping the item on screen so they know it failed.
       const deleteRecord = async (id, targetItem) => {
         const targetId = String(id).trim();
         const idsToDelete = [targetId];
@@ -255,26 +265,29 @@
           }
         });
 
-        // If in cloud mode, attempt STRICT cloud deletion first.
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           try {
+            const deletePromises = [];
             for (const docId of idsToDelete) {
               if (!docId.startsWith('loc_') && !docId.startsWith('imp_')) {
-                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId));
+                deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
               }
+            }
+            if (deletePromises.length > 0) {
+              await runWithTimeout(Promise.all(deletePromises));
             }
           } catch (error) {
             console.error("Firebase Delete Error:", error);
-            onAlertTriggered({ 
-              title: "Cloud Delete Denied", 
-              message: `Your Firebase Rules are blocking this action.\n\nDetails: ${error.message}` 
-            });
-            // Stop execution, return false so modal stays open and card doesn't disappear
-            return false; 
+            if (error.message === 'NETWORK_TIMEOUT') {
+              onAlertTriggered({ title: "Network Error", message: "ลบข้อมูลไม่สำเร็จ เซิร์ฟเวอร์ไม่ตอบสนอง (Timeout)" });
+            } else {
+              onAlertTriggered({ title: "Cloud Delete Denied", message: `Your Firebase Rules are blocking this action.\n\nDetails: ${error.message}` });
+            }
+            return false; // Stop execution
           }
         }
 
-        // If Cloud succeeded OR we are in Local mode, execute actual UI deletion
+        // Apply UI deletion only if Cloud succeeded (or if local mode)
         idsToDelete.forEach(dId => deletedIdsRef.current.add(dId));
         if (targetItem) {
           deletedSignaturesRef.current.add(`${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`);
@@ -293,10 +306,9 @@
           }
         }
         
-        return true; // Success
+        return true; 
       };
 
-      // STRICT AWAIT METHOD
       const updateRecord = async (id, newCost, newTimestamp, targetItem) => {
         const targetId = String(id).trim();
         const numericCost = Number(newCost) || 0;
@@ -315,25 +327,28 @@
 
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
           try {
-            // Delete duplicates
+            const promises = [];
             for (const docId of idsToDelete) {
               if (docId !== targetId && !docId.startsWith('loc_') && !docId.startsWith('imp_')) {
-                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId));
+                promises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
               }
             }
-            // Update main doc
             if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
-              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
+              promises.push(updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
                 cost: numericCost, timestamp: numericTs
-              });
+              }));
+            }
+            if (promises.length > 0) {
+              await runWithTimeout(Promise.all(promises));
             }
           } catch (error) {
             console.error("Firebase Update Error:", error);
-            onAlertTriggered({ 
-              title: "Cloud Edit Denied", 
-              message: `Your Firebase Rules are blocking this action.\n\nDetails: ${error.message}` 
-            });
-            return false; // Stop execution
+            if (error.message === 'NETWORK_TIMEOUT') {
+              onAlertTriggered({ title: "Network Error", message: "แก้ไขข้อมูลไม่สำเร็จ เซิร์ฟเวอร์ไม่ตอบสนอง (Timeout)" });
+            } else {
+              onAlertTriggered({ title: "Cloud Edit Denied", message: `Your Firebase Rules are blocking this action.\n\nDetails: ${error.message}` });
+            }
+            return false;
           }
         }
 
@@ -385,7 +400,7 @@
           };
 
           if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-            await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanItem);
+            await runWithTimeout(addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanItem));
           } else {
             newItemsToSave.push({ id: 'imp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...cleanItem });
           }
@@ -514,10 +529,16 @@
               <button disabled={isDeleting} onClick={onCancel} className="flex-1 py-2.5 bg-white/5 border border-white/10 text-white font-bold rounded-xl text-xs hover:bg-white/10 transition-all disabled:opacity-50">Cancel</button>
               <button 
                 disabled={isDeleting} 
-                onClick={async () => {
+                onClick={async (e) => {
+                  e.stopPropagation();
                   setIsDeleting(true);
-                  await onConfirm();
-                  setIsDeleting(false);
+                  try {
+                    await onConfirm();
+                  } catch(err) {
+                    console.error(err);
+                  } finally {
+                    setIsDeleting(false);
+                  }
                 }} 
                 className="flex-1 py-2.5 bg-rose-500/20 text-rose-400 border border-rose-500/50 font-bold rounded-xl text-xs hover:bg-rose-500/30 transition-all disabled:opacity-50"
               >
@@ -582,17 +603,19 @@
                     e.preventDefault();
                     e.stopPropagation();
                     setIsSavingEdit(true);
-                    
-                    const ts = editDateTime ? new Date(editDateTime).getTime() : item.timestamp;
-                    const validTs = isNaN(ts) ? item.timestamp : ts;
-                    
-                    const success = await systemDB.updateRecord(itemIdStr, Number(editCost) || 0, validTs, item);
-                    
-                    if (success) {
-                      setEditingId(null); 
-                      setActiveItemId(null);
+                    try {
+                      const ts = editDateTime ? new Date(editDateTime).getTime() : item.timestamp;
+                      const validTs = isNaN(ts) ? item.timestamp : ts;
+                      const success = await systemDB.updateRecord(itemIdStr, Number(editCost) || 0, validTs, item);
+                      if (success) {
+                        setEditingId(null); 
+                        setActiveItemId(null);
+                      }
+                    } catch(err) {
+                      console.error(err);
+                    } finally {
+                      setIsSavingEdit(false);
                     }
-                    setIsSavingEdit(false);
                   }} 
                   className="px-3.5 py-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs rounded-lg font-bold hover:bg-amber-500/30 disabled:opacity-50"
                 >
@@ -740,19 +763,22 @@
       const handleSaveSession = async () => {
         if (!systemDB.user || calcDetails.error || isSaving) return;
         setIsSaving(true);
-        const success = await systemDB.addRecord({
-          timestamp: Date.now(),
-          cost: calcDetails.cost,
-          startSoC: currentSoC,
-          targetSoC,
-          chargerType,
-          power: chargerType === 'AC' ? (acInputMode === 'A' ? `${acAmps}A` : `${acPower}kW`) : `${dcPower}kW`,
-          pricePerUnit
-        });
-        if (success) {
-           setAppAlert({ title: "สำเร็จ", message: "บันทึกประวัติการชาร์จเรียบร้อยแล้ว" });
+        try {
+          const success = await systemDB.addRecord({
+            timestamp: Date.now(),
+            cost: calcDetails.cost,
+            startSoC: currentSoC,
+            targetSoC,
+            chargerType,
+            power: chargerType === 'AC' ? (acInputMode === 'A' ? `${acAmps}A` : `${acPower}kW`) : `${dcPower}kW`,
+            pricePerUnit
+          });
+          if (success) {
+             setAppAlert({ title: "สำเร็จ", message: "บันทึกประวัติการชาร์จเรียบร้อยแล้ว" });
+          }
+        } finally {
+          setIsSaving(false);
         }
-        setIsSaving(false);
       };
 
       const handleExportBackup = () => {
