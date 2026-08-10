@@ -444,14 +444,31 @@
 
       const importRecords = async (importedList) => {
         if (!Array.isArray(importedList) || importedList.length === 0) return 0;
+        
+        // 1. Create a registry of existing data signatures to prevent duplicates
+        const existingSignatures = new Set(
+          history.map(item => `${Number(item.timestamp)}_${Number(item.cost).toFixed(2)}`)
+        );
+
         let addedCount = 0;
         const newItemsToSave = [];
 
         for (const rawItem of importedList) {
           if (!rawItem.timestamp || rawItem.cost === undefined) continue;
+          
+          const ts = Number(rawItem.timestamp) || Date.now();
+          const cost = Number(rawItem.cost) || 0;
+          const sig = `${ts}_${cost.toFixed(2)}`;
+
+          // 2. SKIP if duplicate is found in existing data OR already processed in this import
+          if (existingSignatures.has(sig)) {
+            continue; 
+          }
+          existingSignatures.add(sig); // Register to prevent duplicates inside the JSON file itself
+
           const cleanItem = {
-            timestamp: Number(rawItem.timestamp) || Date.now(),
-            cost: Number(rawItem.cost) || 0,
+            timestamp: ts,
+            cost: cost,
             startSoC: Number(rawItem.startSoC) || 0,
             targetSoC: Number(rawItem.targetSoC) || 100,
             chargerType: rawItem.chargerType || 'AC',
