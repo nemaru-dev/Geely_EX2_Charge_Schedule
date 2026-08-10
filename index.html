@@ -1273,7 +1273,7 @@
                 <div className="px-4 py-2.5 bg-white/5 border-b border-white/5 space-y-2">
                   <div className="flex bg-black/40 p-0.5 rounded-xl text-xs font-bold">
                     <button onClick={() => { setHistoryTab('records'); setActiveItemId(null); }} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 ${historyTab === 'records' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>
-                      <Icon name="list" className="w-3.5 h-3.5" /> รายการชาร์จ
+                      <Icon name="list" className="w-3.5 h-3.5" /> {groupedHistory.find(g => g.key === selectedMonthFilter)?.label || 'เดือนปัจจุบัน'}
                     </button>
                     <button onClick={() => { setHistoryTab('summary'); setActiveItemId(null); }} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 ${historyTab === 'summary' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>
                       <Icon name="chart" className="w-3.5 h-3.5" /> สรุปรายเดือน
@@ -1282,22 +1282,14 @@
 
                   {/* Month Filter Selector in Records Tab */}
                   {historyTab === 'records' && (
-                    <div className="flex items-center justify-between gap-1.5 bg-black/30 p-1.5 rounded-xl border border-white/5 text-xs">
-                      <div className="flex gap-1">
-                        <button 
-                          onClick={() => setSelectedMonthFilter(getCurrentMonthKey())} 
-                          className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-all ${selectedMonthFilter === getCurrentMonthKey() ? 'bg-fuchsia-500 text-black font-black' : 'bg-fuchsia-500/10 text-fuchsia-300 border border-fuchsia-500/20'}`}
-                        >
-                          ⚡ เดือนนี้
-                        </button>
-                      </div>
+                    <div className="flex bg-black/30 p-1.5 rounded-xl border border-white/5 text-xs">
                       <select 
                         value={selectedMonthFilter} 
                         onChange={(e) => setSelectedMonthFilter(e.target.value)}
-                        className="bg-[#050B14] border border-white/10 text-cyan-300 rounded-lg px-2 py-1 text-[10px] font-bold font-mono outline-none max-w-[130px]"
+                        className="w-full bg-[#050B14] border border-white/10 text-cyan-300 rounded-lg px-3 py-1.5 text-xs font-bold font-mono outline-none text-center"
                       >
                         {groupedHistory.map(g => (
-                          <option key={g.key} value={g.key}>{g.label} ({g.items.length})</option>
+                          <option key={g.key} value={g.key}>{g.label} ({g.items.length} รายการ)</option>
                         ))}
                       </select>
                     </div>
