@@ -1253,6 +1253,17 @@
                   <button onClick={() => setShowHistory(false)} className="text-white/50 hover:text-white text-xl font-bold">✕</button>
                 </div>
 
+                {/* Global Backup Export & Import Toolbar (Moved right under Title) */}
+                <div className="px-4 py-2.5 bg-black/20 border-b border-white/5 flex gap-2">
+                  <button onClick={handleExportBackup} className="flex-1 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/20 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1.5 transition-all">
+                    <Icon name="upload" className="w-3.5 h-3.5" /> สำรองข้อมูล (Export)
+                  </button>
+                  <label className="flex-1 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer m-0">
+                    <Icon name="download" className="w-3.5 h-3.5" /> นำเข้าข้อมูล (Import)
+                    <input type="file" ref={fileInputRef} onChange={handleImportFile} accept=".json" className="hidden" />
+                  </label>
+                </div>
+
                 {/* Master Accumulated Sum Header */}
                 <div className="p-5 bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border-b border-white/5 text-center">
                   <div className="text-[10px] text-emerald-400/70 font-bold uppercase mb-1">
@@ -1269,20 +1280,8 @@
                   </div>
                 </div>
 
-                {/* Tab Switcher & Bulk Tools */}
+                {/* Tab Switcher & Month Filter */}
                 <div className="px-4 py-3 bg-white/5 border-b border-white/5 space-y-3">
-                  
-                  {/* Backup Export & Import Toolbar (Moved to top as Global Action) */}
-                  <div className="flex gap-2">
-                    <button onClick={handleExportBackup} className="flex-1 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/20 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1.5 transition-all">
-                      <Icon name="download" className="w-3.5 h-3.5" /> Export (JSON)
-                    </button>
-                    <label className="flex-1 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer m-0">
-                      <Icon name="upload" className="w-3.5 h-3.5" /> Import Backup
-                      <input type="file" ref={fileInputRef} onChange={handleImportFile} accept=".json" className="hidden" />
-                    </label>
-                  </div>
-
                   <div className="flex bg-black/40 p-0.5 rounded-xl text-xs font-bold">
                     <button onClick={() => { setHistoryTab('records'); setActiveItemId(null); }} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 ${historyTab === 'records' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>
                       <Icon name="list" className="w-3.5 h-3.5" /> {groupedHistory.find(g => g.key === selectedMonthFilter)?.label || 'เดือนปัจจุบัน'}
