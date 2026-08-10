@@ -24,7 +24,7 @@
   <script id="jsx-source" type="text/plain">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, GoogleAuthProvider, signInWithPopup, linkWithPopup, onAuthStateChanged, signOut, signInWithCredential } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, updateDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     const MY_FIREBASE_CONFIG = {
       apiKey: "AIzaSyBIOOnXGxET8lN-K6h-HRX8dyfrYQlLxZc",
@@ -248,86 +248,94 @@
         }
       };
 
-      // DELETE RECORD (Optimistic UI - NO HANGING)
+      // DELETE RECORD (Absolute Query & Eradicate)
       const deleteRecord = async (id, targetItem) => {
         const targetId = String(id).trim();
-        const idsToDelete = [targetId];
         
-        // Find ghost duplicates locally
-        history.forEach(item => {
-          if (targetItem && String(item.id) !== targetId) {
-            const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
-            const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
-            if (isSameTime && isSameCost) {
-              idsToDelete.push(String(item.id));
-            }
-          }
-        });
+        // 1. OPTIMISTIC UI INSTANT WIPE
+        setHistory(prev => prev.filter(item => {
+           if (String(item.id) === targetId) return false;
+           if (targetItem) {
+              const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
+              const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
+              if (isSameTime && isSameCost) return false;
+           }
+           return true;
+        }));
 
-        const uniqueIds = Array.from(new Set(idsToDelete));
-
-        // 1. OPTIMISTIC UI INSTANT WIPE (Blocks onSnapshot from bringing it back)
-        uniqueIds.forEach(dId => deletedIdsRef.current.add(dId));
-        if (targetItem) {
-          deletedSignaturesRef.current.add(`${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`);
-        }
-        setHistory(prev => prev.filter(item => !uniqueIds.includes(String(item.id))));
-
-        // 2. BACKGROUND SYNC (Fire-and-Forget)
+        // 2. CLOUD SYNC (Find Absolute Server Reference & Destroy)
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-           uniqueIds.forEach(docId => {
-              deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId))
-                .catch(error => {
-                  console.error("Firebase Delete Error:", error);
-                  if (error.code === 'permission-denied') {
-                    onAlertTriggered({ title: "Cloud Denied", message: "Firebase Rules ของคุณหมดอายุ 30 วัน ทำให้การลบไม่สำเร็จบนเซิร์ฟเวอร์ โปรดอัปเดต Rules" });
-                  }
-                });
-           });
-        }
-
-        // 3. Local sync
+           try {
+              const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
+              const snapshot = await getDocs(colRef); // Fetch live truth from server
+              
+              const deletePromises = [];
+              snapshot.docs.forEach(docSnap => {
+                 const data = docSnap.data();
+                 const isIdMatch = String(docSnap.id) === targetId;
+                 
+                 let isDupMatch = false;
+                 if (targetItem) {
+                    const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
+                    const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
+                    isDupMatch = isSameTime && isSameCost;
+                 }
+                 
+                 if (isIdMatch || isDupMatch) {
+                    deletePromises.push(deleteDoc(docSnap.ref));
+                 }
+              });
+              
+              await Promise.all(deletePromises);
+           } catch (error) {
+              console.error("Firebase Delete Error:", error);
+              onAlertTriggered({ 
+                title: "ลบข้อมูลไม่สำเร็จ (Cloud Error)", 
+                message: "สาเหตุ: " + error.message + "\n\n(หากเกิดจาก Permission Denied โปรดอัปเดต Firebase Rules ตามที่แนะนำครับ)" 
+              });
+           }
+        } 
+        
+        // 3. LOCAL SYNC
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
-          const currentLocal = localStorage.getItem('geely_ex2_history');
-          if (currentLocal) {
-            try {
-              const parsed = JSON.parse(currentLocal);
-              const filtered = parsed.filter(item => !uniqueIds.includes(String(item.id)));
-              localStorage.setItem('geely_ex2_history', JSON.stringify(filtered));
-            } catch(e){}
-          }
+           const currentLocal = localStorage.getItem('geely_ex2_history');
+           if (currentLocal) {
+              try {
+                 const parsed = JSON.parse(currentLocal);
+                 const filtered = parsed.filter(item => {
+                    if (String(item.id) === targetId) return false;
+                    if (targetItem) {
+                       const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
+                       const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
+                       if (isSameTime && isSameCost) return false;
+                    }
+                    return true;
+                 });
+                 localStorage.setItem('geely_ex2_history', JSON.stringify(filtered));
+              } catch(e){}
+           }
         }
         
         return true; 
       };
 
-      // UPDATE RECORD (Optimistic UI - NO HANGING)
+      // UPDATE RECORD (Absolute Query & Modify)
       const updateRecord = async (id, newCost, newTimestamp, targetItem) => {
         const targetId = String(id).trim();
         const numericCost = Number(newCost) || 0;
         const numericTs = Number(newTimestamp) || Date.now();
 
-        const idsToDelete = [];
-        history.forEach(item => {
-          if (targetItem && String(item.id) !== targetId) {
-            const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
-            const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
-            if (isSameTime && isSameCost) {
-              idsToDelete.push(String(item.id));
-            }
-          }
-        });
-        const uniqueIds = Array.from(new Set(idsToDelete));
-
-        // 1. OPTIMISTIC UI INSTANT WIPE & UPDATE
-        uniqueIds.forEach(dId => deletedIdsRef.current.add(dId));
-        if (targetItem) {
-          deletedSignaturesRef.current.add(`${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`);
-        }
-        
+        // 1. OPTIMISTIC UI INSTANT UPDATE
         setHistory(prev => {
           const next = prev.map(item => {
-            if (String(item.id) === targetId || uniqueIds.includes(String(item.id))) {
+            const isIdMatch = String(item.id) === targetId;
+            let isDupMatch = false;
+            if (targetItem) {
+               const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
+               const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
+               isDupMatch = isSameTime && isSameCost;
+            }
+            if (isIdMatch || isDupMatch) {
               return { ...item, id: targetId, cost: numericCost, timestamp: numericTs };
             }
             return item;
@@ -336,24 +344,50 @@
                      .sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
         });
 
-        // 2. BACKGROUND SYNC (Fire-and-Forget)
+        // 2. CLOUD SYNC
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-            uniqueIds.forEach(docId => {
-              if (docId !== targetId) {
-                deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)).catch(e=>console.error(e));
-              }
-            });
-            updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
-              cost: numericCost, timestamp: numericTs
-            }).catch(error => {
-              console.error("Firebase Update Error:", error);
-              if (error.code === 'permission-denied') {
-                onAlertTriggered({ title: "Cloud Denied", message: "Firebase Rules หมดอายุ ทำให้แก้ไขไม่สำเร็จบนเซิร์ฟเวอร์" });
-              }
-            });
-        }
+           try {
+              const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
+              const snapshot = await getDocs(colRef); // Fetch live truth from server
+              
+              const opsPromises = [];
+              let foundTarget = false;
 
-        // 3. Local sync
+              snapshot.docs.forEach(docSnap => {
+                 const data = docSnap.data();
+                 const isIdMatch = String(docSnap.id) === targetId;
+                 
+                 let isDupMatch = false;
+                 if (targetItem) {
+                    const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
+                    const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
+                    isDupMatch = isSameTime && isSameCost;
+                 }
+                 
+                 if (isIdMatch) {
+                    opsPromises.push(updateDoc(docSnap.ref, { cost: numericCost, timestamp: numericTs }));
+                    foundTarget = true;
+                 } else if (isDupMatch) {
+                    // Destroy any ghost duplicates to clean up your database
+                    opsPromises.push(deleteDoc(docSnap.ref));
+                 }
+              });
+              
+              // If the original ID wasn't found in the cloud (legacy import), add it as a new document
+              if (!foundTarget && targetItem) {
+                 const cleanRecord = { ...targetItem, cost: numericCost, timestamp: numericTs };
+                 delete cleanRecord.id; 
+                 opsPromises.push(addDoc(colRef, cleanRecord));
+              }
+
+              await Promise.all(opsPromises);
+           } catch (error) {
+              console.error("Firebase Update Error:", error);
+              onAlertTriggered({ title: "อัปเดตข้อมูลไม่สำเร็จ (Cloud Error)", message: error.message });
+           }
+        } 
+        
+        // 3. LOCAL SYNC
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
           const currentLocal = localStorage.getItem('geely_ex2_history');
           if (currentLocal) {
