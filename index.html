@@ -460,7 +460,26 @@
       );
     };
 
-    const RecordItemCard = ({ item, activeItemId, setActiveItemId, editingId, setEditingId, editCost, setEditCost, editDateTime, setEditDateTime, systemDB }) => {
+    const ConfirmDeleteModal = ({ item, onConfirm, onCancel }) => {
+      if (!item) return null;
+      return (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+          <div className="bg-[#120F24] border border-rose-500/30 rounded-3xl w-full max-w-xs p-6 text-center shadow-[0_0_50px_-12px_rgba(244,63,94,0.4)]">
+            <div className="w-14 h-14 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-rose-500/30">
+              <Icon name="trash" className="w-6 h-6 text-rose-500" />
+            </div>
+            <h4 className="text-lg font-black text-white mb-2">ยืนยันการลบข้อมูล</h4>
+            <p className="text-gray-400 text-[11px] mb-6">คุณต้องการลบประวัติการชาร์จยอด <span className="text-amber-400 font-mono font-bold text-sm">฿{Number(item.cost).toFixed(2)}</span> ใช่หรือไม่?<br/>(การดำเนินการนี้ไม่สามารถย้อนกลับได้)</p>
+            <div className="flex gap-3">
+              <button onClick={onCancel} className="flex-1 py-2.5 bg-white/5 border border-white/10 text-white font-bold rounded-xl text-xs hover:bg-white/10 transition-all">ยกเลิก</button>
+              <button onClick={onConfirm} className="flex-1 py-2.5 bg-rose-500/20 text-rose-400 border border-rose-500/50 font-bold rounded-xl text-xs hover:bg-rose-500/30 transition-all">ใช่, ลบเลย</button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const RecordItemCard = ({ item, activeItemId, setActiveItemId, editingId, setEditingId, editCost, setEditCost, editDateTime, setEditDateTime, systemDB, onDeleteRequest }) => {
       const itemIdStr = String(item.id);
       const isEditing = String(editingId) === itemIdStr;
       const isFocused = String(activeItemId) === itemIdStr;
@@ -549,9 +568,7 @@
                   <button 
                     onClick={(e) => {
                       e.stopPropagation();
-                      setEditingId(null);
-                      setActiveItemId(null);
-                      systemDB.deleteRecord(itemIdStr, item); 
+                      onDeleteRequest(item);
                     }} 
                     className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-rose-500/20"
                   >
@@ -601,6 +618,7 @@
       const [editCost, setEditCost] = useState("");
       const [editDateTime, setEditDateTime] = useState("");
       const [isSaving, setIsSaving] = useState(false);
+      const [itemToDelete, setItemToDelete] = useState(null);
 
       const fileInputRef = useRef(null);
 
@@ -1134,7 +1152,8 @@
                             setEditCost={setEditCost} 
                             editDateTime={editDateTime} 
                             setEditDateTime={setEditDateTime} 
-                            systemDB={systemDB} 
+                            systemDB={systemDB}
+                            onDeleteRequest={setItemToDelete}
                           />
                         ))
                       )}
@@ -1182,7 +1201,8 @@
                                     setEditCost={setEditCost} 
                                     editDateTime={editDateTime} 
                                     setEditDateTime={setEditDateTime} 
-                                    systemDB={systemDB} 
+                                    systemDB={systemDB}
+                                    onDeleteRequest={setItemToDelete}
                                   />
                                 ))}
                               </div>
@@ -1197,6 +1217,20 @@
               </div>
             </div>
           )}
+
+          {}
+          <ConfirmDeleteModal 
+            item={itemToDelete} 
+            onConfirm={() => {
+              if (itemToDelete) {
+                systemDB.deleteRecord(String(itemToDelete.id), itemToDelete);
+                setActiveItemId(null);
+                setEditingId(null);
+                setItemToDelete(null);
+              }
+            }} 
+            onCancel={() => setItemToDelete(null)} 
+          />
 
         </div>
       );
