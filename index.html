@@ -230,21 +230,29 @@
         localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
       };
 
-      const deleteRecord = async (id, targetItem) => {
+      const deleteRecord = (id, targetItem) => {
         const targetId = String(id).trim();
         deletedIdsRef.current.add(targetId);
         
-        // จดจำลายนิ้วมือของข้อมูลที่ลบ เพื่อบล็อกไม่ให้ผีเด้งกลับมาตอน Refresh
         if (targetItem) {
           deletedSignaturesRef.current.add(`${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`);
         }
 
-        // 1. Optimistic UI update: หายวับไปจากจอทันที
-        setHistory(prev => prev.filter(item => {
-          if (String(item.id) === targetId) return false;
-          if (targetItem && (`${Number(item.timestamp)}_${Number(item.cost)}` === `${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`)) return false;
-          return true;
-        }));
+        // ค้นหาข้อมูลแฝงจากหน่วยความจำ (History State) โดยไม่ต้องไป Await ดึงจาก Cloud ให้ค้าง
+        const idsToDelete = [targetId];
+        history.forEach(item => {
+          if (targetItem && String(item.id) !== targetId) {
+            const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
+            const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
+            if (isSameTime && isSameCost) {
+              idsToDelete.push(String(item.id));
+              deletedIdsRef.current.add(String(item.id));
+            }
+          }
+        });
+
+        // 1. Optimistic UI update: เอาออกจากจอทันที
+        setHistory(prev => prev.filter(item => !idsToDelete.includes(String(item.id))));
 
         // 2. Local Storage update
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
@@ -252,11 +260,7 @@
           if (currentLocal) {
             try {
               const parsed = JSON.parse(currentLocal);
-              const filtered = parsed.filter(item => {
-                if (String(item.id) === targetId) return false;
-                if (targetItem && (`${Number(item.timestamp)}_${Number(item.cost)}` === `${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`)) return false;
-                return true;
-              });
+              const filtered = parsed.filter(item => !idsToDelete.includes(String(item.id)));
               localStorage.setItem('geely_ex2_history', JSON.stringify(filtered));
             } catch(e){}
           }
@@ -264,68 +268,57 @@
           localStorage.removeItem('geely_ex2_history');
         }
 
-        // 3. Cloud Firestore Brute-force Deletion
+        // 3. Cloud Firestore Fire-and-Forget (ลบเบื้องหลัง ไม่ให้ UI ค้าง)
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-          try {
-            const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
-            const snapshot = await getDocs(colRef);
-            const deletePromises = [];
-
-            snapshot.forEach((docSnap) => {
-              const docId = String(docSnap.id);
-              const data = docSnap.data();
-              let shouldDelete = false;
-
-              // กวาดล้างทั้ง ID ตรง และข้อมูลที่ลายนิ้วมือเหมือนกันเป๊ะ (ตัวก๊อปปี้)
-              if (docId === targetId) {
-                shouldDelete = true;
-              } else if (targetItem && data) {
-                const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
-                const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
-                if (isSameTime && isSameCost) {
-                  shouldDelete = true;
-                }
-              }
-
-              if (shouldDelete) {
-                deletedIdsRef.current.add(docId);
-                deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
-              }
-            });
-
-            if (deletePromises.length > 0) {
-              await Promise.all(deletePromises);
-            } else {
-              // สำรองความปลอดภัยเผื่อหาใน snapshot ไม่เจอ
-              await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId));
+          idsToDelete.forEach(docId => {
+            if (!docId.startsWith('loc_') && !docId.startsWith('imp_')) {
+              deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId))
+                .catch(e => {
+                  console.error("Cloud delete error:", e);
+                  onAlertTriggered({ 
+                    title: "ลบใน Cloud ไม่สำเร็จ (Permission Denied)", 
+                    message: `ข้อมูลหายไปจากจอแล้ว แต่ในเซิร์ฟเวอร์ปฏิเสธการลบ\n\nโปรดตรวจสอบ Firestore Security Rules ของคุณว่าตั้งค่าให้อนุญาตการเขียน (write) หรือยังครับ` 
+                  });
+                });
             }
-          } catch(e) {
-            console.error("Cloud delete error:", e);
-            onAlertTriggered({ 
-              title: "ลบข้อมูลใน Cloud ไม่สำเร็จ", 
-              message: `ข้อผิดพลาด: ${e.message}\n(ข้อมูลหายไปจากหน้าจอแล้ว แต่ในเซิร์ฟเวอร์ยังลบไม่ได้ โปรดตรวจสอบอินเทอร์เน็ต)` 
-            });
-          }
+          });
         }
       };
 
-      const updateRecord = async (id, newCost, newTimestamp, targetItem) => {
+      const updateRecord = (id, newCost, newTimestamp, targetItem) => {
         const targetId = String(id).trim();
         const numericCost = Number(newCost) || 0;
         const numericTs = Number(newTimestamp) || Date.now();
 
-        // บล็อกข้อมูลเก่าทิ้ง เพื่อไม่ให้ตัวก๊อปปี้เก่าเด้งกลับมา
         if (targetItem) {
           deletedSignaturesRef.current.add(`${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`);
         }
 
-        setHistory(prev => prev.map(item => {
-          if (String(item.id) === targetId || (targetItem && (`${Number(item.timestamp)}_${Number(item.cost)}` === `${Number(targetItem.timestamp)}_${Number(targetItem.cost)}`))) {
-            return { ...item, id: targetId, cost: numericCost, timestamp: numericTs };
+        const idsToDelete = [];
+        history.forEach(item => {
+          if (targetItem && String(item.id) !== targetId) {
+            const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
+            const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
+            if (isSameTime && isSameCost) {
+              idsToDelete.push(String(item.id));
+              deletedIdsRef.current.add(String(item.id));
+            }
           }
-          return item;
-        }).sort((a,b) => Number(b.timestamp) - Number(a.timestamp)));
+        });
 
+        // 1. Optimistic Update (อัปเดตหน้าจอทันที)
+        setHistory(prev => {
+          const next = prev.map(item => {
+            if (String(item.id) === targetId || idsToDelete.includes(String(item.id))) {
+              return { ...item, id: targetId, cost: numericCost, timestamp: numericTs };
+            }
+            return item;
+          });
+          return next.filter((item, index, self) => index === self.findIndex((t) => String(t.id) === String(item.id)))
+                     .sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
+        });
+
+        // 2. Local Storage update
         if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
           const currentLocal = localStorage.getItem('geely_ex2_history');
           if (currentLocal) {
@@ -339,44 +332,23 @@
           localStorage.removeItem('geely_ex2_history');
         }
 
+        // 3. Cloud Firestore Fire-and-Forget
         if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
-          try {
-            const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
-            const snapshot = await getDocs(colRef);
-            const deletePromises = [];
-            let foundPrimary = false;
-
-            snapshot.forEach((docSnap) => {
-              const docId = String(docSnap.id);
-              if (docId === targetId) {
-                foundPrimary = true;
-              } else if (targetItem) {
-                const data = docSnap.data();
-                const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
-                const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
-                if (isSameTime && isSameCost) {
-                  deletedIdsRef.current.add(docId);
-                  deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
-                }
-              }
-            });
-
-            if (deletePromises.length > 0) await Promise.all(deletePromises);
-            
-            if (foundPrimary) {
-              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
-                cost: numericCost, timestamp: numericTs
-              });
-            } else if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
-              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
-                cost: numericCost, timestamp: numericTs
-              });
+          idsToDelete.forEach(docId => {
+            if (!docId.startsWith('loc_') && !docId.startsWith('imp_')) {
+              deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)).catch(e=>{});
             }
-          } catch(e) { 
-            console.error("Cloud update error", e); 
-            onAlertTriggered({ 
-              title: "อัปเดตข้อมูลใน Cloud ไม่สำเร็จ", 
-              message: `ข้อผิดพลาด: ${e.message}` 
+          });
+
+          if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
+            updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
+              cost: numericCost, timestamp: numericTs
+            }).catch(e => {
+              console.error("Cloud update error", e);
+              onAlertTriggered({ 
+                title: "อัปเดตข้อมูลใน Cloud ไม่สำเร็จ", 
+                message: `เซิร์ฟเวอร์ Firebase ปฏิเสธการบันทึกข้อมูล โปรดตรวจสอบ Firestore Security Rules ครับ` 
+              });
             });
           }
         }
@@ -568,6 +540,7 @@
               <div className="flex justify-end gap-2 pt-2">
                 <button 
                   onClick={(e) => {
+                    e.preventDefault();
                     e.stopPropagation();
                     setEditingId(null);
                   }} 
@@ -577,6 +550,7 @@
                 </button>
                 <button 
                   onClick={(e) => {
+                    e.preventDefault();
                     e.stopPropagation();
                     const ts = editDateTime ? new Date(editDateTime).getTime() : item.timestamp;
                     const validTs = isNaN(ts) ? item.timestamp : ts;
