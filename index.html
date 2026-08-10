@@ -291,14 +291,17 @@
       // DELETE RECORD (Absolute Query & Eradicate)
       const deleteRecord = async (id, targetItem) => {
         const targetId = String(id).trim();
+        const isLocalId = targetId.startsWith('loc_') || targetId.startsWith('imp_') || targetId.startsWith('temp_');
         
         // 1. OPTIMISTIC UI INSTANT WIPE
         setHistory(prev => prev.filter(item => {
            if (String(item.id) === targetId) return false;
-           if (targetItem) {
+           if (isLocalId && targetItem) {
               const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
               const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
-              if (isSameTime && isSameCost) return false;
+              const isSameStart = Number(item.startSoC) === Number(targetItem.startSoC);
+              const isSameTarget = Number(item.targetSoC) === Number(targetItem.targetSoC);
+              if (isSameTime && isSameCost && isSameStart && isSameTarget) return false;
            }
            return true;
         }));
@@ -315,10 +318,12 @@
                  const isIdMatch = String(docSnap.id) === targetId;
                  
                  let isDupMatch = false;
-                 if (targetItem) {
+                 if (isLocalId && targetItem && !isIdMatch) {
                     const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
                     const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
-                    isDupMatch = isSameTime && isSameCost;
+                    const isSameStart = Number(data.startSoC) === Number(targetItem.startSoC);
+                    const isSameTarget = Number(data.targetSoC) === Number(targetItem.targetSoC);
+                    isDupMatch = isSameTime && isSameCost && isSameStart && isSameTarget;
                  }
                  
                  if (isIdMatch || isDupMatch) {
@@ -344,10 +349,12 @@
                  const parsed = JSON.parse(currentLocal);
                  const filtered = parsed.filter(item => {
                     if (String(item.id) === targetId) return false;
-                    if (targetItem) {
+                    if (isLocalId && targetItem) {
                        const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
                        const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
-                       if (isSameTime && isSameCost) return false;
+                       const isSameStart = Number(item.startSoC) === Number(targetItem.startSoC);
+                       const isSameTarget = Number(item.targetSoC) === Number(targetItem.targetSoC);
+                       if (isSameTime && isSameCost && isSameStart && isSameTarget) return false;
                     }
                     return true;
                  });
@@ -364,16 +371,19 @@
         const targetId = String(id).trim();
         const numericCost = Number(newCost) || 0;
         const numericTs = Number(newTimestamp) || Date.now();
+        const isLocalId = targetId.startsWith('loc_') || targetId.startsWith('imp_') || targetId.startsWith('temp_');
 
         // 1. OPTIMISTIC UI INSTANT UPDATE
         setHistory(prev => {
           const next = prev.map(item => {
             const isIdMatch = String(item.id) === targetId;
             let isDupMatch = false;
-            if (targetItem) {
+            if (isLocalId && targetItem && !isIdMatch) {
                const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
                const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
-               isDupMatch = isSameTime && isSameCost;
+               const isSameStart = Number(item.startSoC) === Number(targetItem.startSoC);
+               const isSameTarget = Number(item.targetSoC) === Number(targetItem.targetSoC);
+               isDupMatch = isSameTime && isSameCost && isSameStart && isSameTarget;
             }
             if (isIdMatch || isDupMatch) {
               return { ...item, id: targetId, cost: numericCost, timestamp: numericTs };
@@ -398,18 +408,17 @@
                  const isIdMatch = String(docSnap.id) === targetId;
                  
                  let isDupMatch = false;
-                 if (targetItem) {
+                 if (isLocalId && targetItem && !isIdMatch) {
                     const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
                     const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
-                    isDupMatch = isSameTime && isSameCost;
+                    const isSameStart = Number(data.startSoC) === Number(targetItem.startSoC);
+                    const isSameTarget = Number(data.targetSoC) === Number(targetItem.targetSoC);
+                    isDupMatch = isSameTime && isSameCost && isSameStart && isSameTarget;
                  }
                  
-                 if (isIdMatch) {
+                 if (isIdMatch || isDupMatch) {
                     opsPromises.push(updateDoc(docSnap.ref, { cost: numericCost, timestamp: numericTs }));
                     foundTarget = true;
-                 } else if (isDupMatch) {
-                    // Destroy any ghost duplicates to clean up your database
-                    opsPromises.push(deleteDoc(docSnap.ref));
                  }
               });
               
