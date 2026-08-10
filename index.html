@@ -269,9 +269,7 @@
           try {
             const deletePromises = [];
             for (const docId of idsToDelete) {
-              if (!docId.startsWith('loc_') && !docId.startsWith('imp_')) {
-                deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
-              }
+              deletePromises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
             }
             if (deletePromises.length > 0) {
               await runWithTimeout(Promise.all(deletePromises));
@@ -329,15 +327,13 @@
           try {
             const promises = [];
             for (const docId of idsToDelete) {
-              if (docId !== targetId && !docId.startsWith('loc_') && !docId.startsWith('imp_')) {
+              if (docId !== targetId) {
                 promises.push(deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', docId)));
               }
             }
-            if (!targetId.startsWith('loc_') && !targetId.startsWith('imp_')) {
-              promises.push(updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
-                cost: numericCost, timestamp: numericTs
-              }));
-            }
+            promises.push(updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory', targetId), {
+              cost: numericCost, timestamp: numericTs
+            }));
             if (promises.length > 0) {
               await runWithTimeout(Promise.all(promises));
             }
