@@ -77,6 +77,46 @@
       AC_VAMPIRE_DRAIN_KW: 0.3
     };
 
+    const calculateChargeStats = (currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC) => {
+      let pwr = 0;
+      if (chargerType === 'AC') {
+        pwr = acInputMode === 'A' ? (acAmps * 0.94 * calibVoltage) / 1000 : Number(acPower) || 0;
+      } else {
+        pwr = Number(dcPower) || 0;
+      }
+
+      if (currentSoC >= targetSoC) return { hours: 0, minutes: 0, error: "แบตเตอรี่ถึงเป้าหมายแล้ว", actualPower: 0, bottleneck: null, cost: 0 };
+      if (pwr <= 0) return { hours: 0, minutes: 0, error: "ข้อมูลกำลังไฟไม่ถูกต้อง", actualPower: 0, bottleneck: null, cost: 0 };
+
+      const energyNeeded = EV_SPECS.CAPACITY * ((targetSoC - currentSoC) / 100);
+      let maxCap = chargerType === 'AC' ? EV_SPECS.MAX_AC_POWER : EV_SPECS.MAX_DC_POWER;
+      let actualPower = Math.min(pwr, maxCap);
+      let bottleneck = pwr > maxCap ? `รถรับไฟได้สูงสุด ${maxCap} kW` : 'จำกัดตามกำลังเครื่องชาร์จ';
+
+      let timeHours = 0;
+      if (chargerType === 'AC') {
+        const eff = calibOBC / 100;
+        if (currentSoC < 90) timeHours += (EV_SPECS.CAPACITY * ((Math.min(targetSoC, 90) - currentSoC) / 100)) / (actualPower * eff);
+        if (targetSoC > 90) timeHours += (EV_SPECS.CAPACITY * ((targetSoC - Math.max(currentSoC, 90)) / 100)) / (actualPower * eff * 0.85);
+      } else {
+        const effDc = actualPower * EV_SPECS.DC_EFFICIENCY;
+        if (targetSoC <= 80) timeHours = energyNeeded / effDc;
+        else if (currentSoC >= 80) timeHours = energyNeeded / (effDc * EV_SPECS.TRICKLE_RATE);
+        else timeHours = ((EV_SPECS.CAPACITY * ((80 - currentSoC) / 100)) / effDc) + ((EV_SPECS.CAPACITY * ((targetSoC - 80) / 100)) / (effDc * EV_SPECS.TRICKLE_RATE));
+      }
+
+      const totalMins = Math.round(timeHours * 60);
+
+      let cost = 0;
+      if (chargerType === 'AC') {
+        cost = ((energyNeeded / EV_SPECS.AC_COST_EFFICIENCY) + (timeHours * EV_SPECS.AC_VAMPIRE_DRAIN_KW)) * (Number(pricePerUnit) || 0);
+      } else {
+        cost = (energyNeeded / EV_SPECS.DC_COST_EFFICIENCY) * (Number(pricePerUnit) || 0);
+      }
+
+      return { hours: Math.floor(totalMins / 60), minutes: totalMins % 60, actualPower, bottleneck, error: null, cost };
+    };
+
     const Icon = ({ name, className = "w-5 h-5" }) => {
       const paths = {
         zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />,
@@ -442,43 +482,7 @@
 
     function useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC) {
       return useMemo(() => {
-        let pwr = 0;
-        if (chargerType === 'AC') {
-          pwr = acInputMode === 'A' ? (acAmps * 0.94 * calibVoltage) / 1000 : Number(acPower) || 0;
-        } else {
-          pwr = Number(dcPower) || 0;
-        }
-
-        if (currentSoC >= targetSoC) return { hours: 0, minutes: 0, error: "แบตเตอรี่ถึงเป้าหมายแล้ว", actualPower: 0, bottleneck: null, cost: 0 };
-        if (pwr <= 0) return { hours: 0, minutes: 0, error: "ข้อมูลกำลังไฟไม่ถูกต้อง", actualPower: 0, bottleneck: null, cost: 0 };
-
-        const energyNeeded = EV_SPECS.CAPACITY * ((targetSoC - currentSoC) / 100);
-        let maxCap = chargerType === 'AC' ? EV_SPECS.MAX_AC_POWER : EV_SPECS.MAX_DC_POWER;
-        let actualPower = Math.min(pwr, maxCap);
-        let bottleneck = pwr > maxCap ? `รถรับไฟได้สูงสุด ${maxCap} kW` : 'จำกัดตามกำลังเครื่องชาร์จ';
-
-        let timeHours = 0;
-        if (chargerType === 'AC') {
-          const eff = calibOBC / 100;
-          if (currentSoC < 90) timeHours += (EV_SPECS.CAPACITY * ((Math.min(targetSoC, 90) - currentSoC) / 100)) / (actualPower * eff);
-          if (targetSoC > 90) timeHours += (EV_SPECS.CAPACITY * ((targetSoC - Math.max(currentSoC, 90)) / 100)) / (actualPower * eff * 0.85);
-        } else {
-          const effDc = actualPower * EV_SPECS.DC_EFFICIENCY;
-          if (targetSoC <= 80) timeHours = energyNeeded / effDc;
-          else if (currentSoC >= 80) timeHours = energyNeeded / (effDc * EV_SPECS.TRICKLE_RATE);
-          else timeHours = ((EV_SPECS.CAPACITY * ((80 - currentSoC) / 100)) / effDc) + ((EV_SPECS.CAPACITY * ((targetSoC - 80) / 100)) / (effDc * EV_SPECS.TRICKLE_RATE));
-        }
-
-        const totalMins = Math.round(timeHours * 60);
-
-        let cost = 0;
-        if (chargerType === 'AC') {
-          cost = ((energyNeeded / EV_SPECS.AC_COST_EFFICIENCY) + (timeHours * EV_SPECS.AC_VAMPIRE_DRAIN_KW)) * (Number(pricePerUnit) || 0);
-        } else {
-          cost = (energyNeeded / EV_SPECS.DC_COST_EFFICIENCY) * (Number(pricePerUnit) || 0);
-        }
-
-        return { hours: Math.floor(totalMins / 60), minutes: totalMins % 60, actualPower, bottleneck, error: null, cost };
+        return calculateChargeStats(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC);
       }, [currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC]);
     }
 
@@ -731,6 +735,51 @@
 
       const calcDetails = useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC);
 
+      const handleRecalculateOldData = async () => {
+        if (!confirm("ระบบจะคำนวณราคาของประวัติการชาร์จทั้งหมดใหม่ด้วยสูตรที่อัปเดตล่าสุด (รวมค่าแอร์และ Loss) ต้องการดำเนินการต่อหรือไม่?")) return;
+        
+        setIsSaving(true);
+        let updated = 0;
+        try {
+          for (const item of systemDB.history) {
+            let pAcPower = 7, pAcAmps = 10, pDcPower = 120, pAcInputMode = 'A';
+            const powerStr = String(item.power || '');
+            if (item.chargerType === 'AC') {
+               if (powerStr.includes('A')) {
+                  pAcInputMode = 'A';
+                  pAcAmps = parseInt(powerStr) || 10;
+               } else {
+                  pAcInputMode = 'kW';
+                  pAcPower = parseFloat(powerStr) || 7;
+               }
+            } else {
+               pDcPower = parseFloat(powerStr) || 120;
+            }
+
+            const stats = calculateChargeStats(
+               Number(item.startSoC) || 0, 
+               Number(item.targetSoC) || 100, 
+               item.chargerType || 'AC', 
+               pDcPower, pAcPower, pAcInputMode, pAcAmps, 
+               Number(item.pricePerUnit) || 4.5, 
+               calibVoltage, calibOBC
+            );
+            
+            if (!stats.error && Math.abs(stats.cost - (Number(item.cost) || 0)) > 0.1) {
+               await systemDB.updateRecord(String(item.id), stats.cost, item.timestamp, item);
+               updated++;
+            }
+          }
+          setAppAlert({ title: "อัปเดตข้อมูลสำเร็จ", message: `คำนวณและอัปเดตค่าไฟใหม่จำนวน ${updated} รายการ เรียบร้อยแล้ว` });
+        } catch (e) {
+          console.error(e);
+          setAppAlert({ title: "เกิดข้อผิดพลาด", message: e.message });
+        } finally {
+          setIsSaving(false);
+          setShowCalib(false);
+        }
+      };
+
       const groupedHistory = useMemo(() => {
         const groups = {};
         systemDB.history.forEach(item => {
@@ -884,6 +933,13 @@
                 <div>
                   <div className="flex justify-between text-xs text-gray-300 mb-1"><span>ประสิทธิภาพตัวแปลงไฟ (OBC Efficiency)</span><span className="text-fuchsia-400 font-mono font-bold">{calibOBC}%</span></div>
                   <input type="range" min="75" max="98" step="1" value={calibOBC} onChange={(e) => setCalibOBC(Number(e.target.value))} className="w-full h-2 bg-white/10 rounded appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-fuchsia-500 [&::-webkit-slider-thumb]:rounded-full" />
+                </div>
+                
+                <div className="pt-3 border-t border-white/5 mt-3">
+                  <button onClick={handleRecalculateOldData} disabled={isSaving || systemDB.history.length === 0} className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-[10px] font-bold uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                     <Icon name="history" className="w-3.5 h-3.5" /> อัปเดตประวัติด้วยสูตรใหม่
+                  </button>
+                  <p className="text-[8px] text-gray-400 text-center mt-1.5 leading-tight">คำนวณราคาชาร์จเก่าใหม่ทั้งหมด ด้วยสมการชดเชยการสูญเสียพลังงาน (Vampire Drain & Heat Loss)</p>
                 </div>
               </div>
             )}
