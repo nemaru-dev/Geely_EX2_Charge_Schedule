@@ -16,9 +16,6 @@
     .history-scroll::-webkit-scrollbar { width: 6px; }
     .history-scroll::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
     .history-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
-    input[type=range] { -webkit-appearance: none; background: transparent; }
-    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: currentColor; cursor: pointer; margin-top: -6px; box-shadow: 0 0 10px currentColor; }
-    input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.1); border-radius: 2px; }
   </style>
 </head>
 <body>
@@ -30,243 +27,691 @@
     import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, updateDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     const MY_FIREBASE_CONFIG = {
-      apiKey: "AIzaSyBIOOnXGxET8lN-K6h-HRX8dyfrYQlLxZc", authDomain: "geely-tracker.firebaseapp.com", projectId: "geely-tracker",
-      storageBucket: "geely-tracker.firebasestorage.app", messagingSenderId: "1066830584325", appId: "1:1066830584325:web:cf20ac2cb77d9142399a6c"
+      apiKey: "AIzaSyBIOOnXGxET8lN-K6h-HRX8dyfrYQlLxZc",
+      authDomain: "geely-tracker.firebaseapp.com",
+      projectId: "geely-tracker",
+      storageBucket: "geely-tracker.firebasestorage.app",
+      messagingSenderId: "1066830584325",
+      appId: "1:1066830584325:web:cf20ac2cb77d9142399a6c",
+      measurementId: "G-WVJLH5HPS4"
     };
 
     let app = null, auth = null, db = null;
-    try { app = initializeApp(MY_FIREBASE_CONFIG); auth = getAuth(app); db = getFirestore(app); } catch(e) { console.error(e); }
+    if (MY_FIREBASE_CONFIG.apiKey) {
+      try {
+        app = initializeApp(MY_FIREBASE_CONFIG);
+        auth = getAuth(app);
+        db = getFirestore(app);
+      } catch(e) { console.error("Firebase Init Error", e); }
+    }
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'geely-ex2-github-app';
 
     const { useState, useEffect, useMemo, useRef, memo } = React;
 
-    const getCurrentTimeStr = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
-    const getSafeISODateTime = (ts) => {
-      try { const d = new Date(isNaN(Number(ts)) ? ts : Number(ts)); if (isNaN(d.getTime())) throw new Error(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); } 
-      catch { return new Date().toISOString().slice(0, 16); }
+    const getCurrentTimeStr = () => {
+      const now = new Date();
+      return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     };
 
-    const EV_SPECS = { CAPACITY: 39.4, MAX_AC_POWER: 6.6, MAX_DC_POWER: 70.0, DC_EFFICIENCY: 0.95, TRICKLE_RATE: 0.35, AC_COST_EFFICIENCY: 0.90, DC_COST_EFFICIENCY: 0.87, AC_VAMPIRE_DRAIN_KW: 0.3 };
+    const getSafeISODateTime = (ts) => {
+      try {
+        const rawNum = Number(ts);
+        const d = new Date(isNaN(rawNum) ? ts : rawNum);
+        if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 16);
+        const tz = d.getTimezoneOffset() * 60000;
+        return new Date(d.getTime() - tz).toISOString().slice(0, 16);
+      } catch(e) {
+        return new Date().toISOString().slice(0, 16);
+      }
+    };
+
+    const EV_SPECS = { 
+      CAPACITY: 39.4, 
+      MAX_AC_POWER: 6.6, 
+      MAX_DC_POWER: 70.0, 
+      AC_EFFICIENCY: 0.94, 
+      DC_EFFICIENCY: 0.95, 
+      TRICKLE_RATE: 0.35, 
+      AC_COST_EFFICIENCY: 0.90, 
+      DC_COST_EFFICIENCY: 18.912 / 21.728,
+      AC_VAMPIRE_DRAIN_KW: 0.3
+    };
 
     const calculateChargeStats = (currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC) => {
-      let pwr = chargerType === 'AC' ? (acInputMode === 'A' ? (acAmps * 0.94 * calibVoltage) / 1000 : Number(acPower)||0) : (Number(dcPower)||0);
-      if (currentSoC >= targetSoC) return { hours: 0, minutes: 0, error: "แบตเตอรี่ถึงเป้าหมายแล้ว", actualPower: 0, cost: 0 };
-      if (pwr <= 0) return { hours: 0, minutes: 0, error: "ข้อมูลกำลังไฟไม่ถูกต้อง", actualPower: 0, cost: 0 };
+      let pwr = 0;
+      if (chargerType === 'AC') {
+        pwr = acInputMode === 'A' ? (acAmps * 0.94 * calibVoltage) / 1000 : Number(acPower) || 0;
+      } else {
+        pwr = Number(dcPower) || 0;
+      }
+
+      if (currentSoC >= targetSoC) return { hours: 0, minutes: 0, error: "แบตเตอรี่ถึงเป้าหมายแล้ว", actualPower: 0, bottleneck: null, cost: 0 };
+      if (pwr <= 0) return { hours: 0, minutes: 0, error: "ข้อมูลกำลังไฟไม่ถูกต้อง", actualPower: 0, bottleneck: null, cost: 0 };
 
       const energyNeeded = EV_SPECS.CAPACITY * ((targetSoC - currentSoC) / 100);
-      let actualPower = Math.min(pwr, chargerType === 'AC' ? EV_SPECS.MAX_AC_POWER : EV_SPECS.MAX_DC_POWER);
-      let bottleneck = pwr > actualPower ? `รถรับไฟได้สูงสุด ${actualPower} kW` : 'จำกัดตามกำลังเครื่องชาร์จ';
-      let timeHours = 0, cost = 0;
+      let maxCap = chargerType === 'AC' ? EV_SPECS.MAX_AC_POWER : EV_SPECS.MAX_DC_POWER;
+      let actualPower = Math.min(pwr, maxCap);
+      let bottleneck = pwr > maxCap ? `รถรับไฟได้สูงสุด ${maxCap} kW` : 'จำกัดตามกำลังเครื่องชาร์จ';
 
+      let timeHours = 0;
       if (chargerType === 'AC') {
         const eff = calibOBC / 100;
         if (currentSoC < 90) timeHours += (EV_SPECS.CAPACITY * ((Math.min(targetSoC, 90) - currentSoC) / 100)) / (actualPower * eff);
         if (targetSoC > 90) timeHours += (EV_SPECS.CAPACITY * ((targetSoC - Math.max(currentSoC, 90)) / 100)) / (actualPower * eff * 0.85);
-        cost = ((energyNeeded / EV_SPECS.AC_COST_EFFICIENCY) + (timeHours * EV_SPECS.AC_VAMPIRE_DRAIN_KW)) * (Number(pricePerUnit) || 0);
       } else {
         const effDc = actualPower * EV_SPECS.DC_EFFICIENCY;
         if (targetSoC <= 80) timeHours = energyNeeded / effDc;
         else if (currentSoC >= 80) timeHours = energyNeeded / (effDc * EV_SPECS.TRICKLE_RATE);
         else timeHours = ((EV_SPECS.CAPACITY * ((80 - currentSoC) / 100)) / effDc) + ((EV_SPECS.CAPACITY * ((targetSoC - 80) / 100)) / (effDc * EV_SPECS.TRICKLE_RATE));
+      }
+
+      const totalMins = Math.round(timeHours * 60);
+
+      let cost = 0;
+      if (chargerType === 'AC') {
+        cost = ((energyNeeded / EV_SPECS.AC_COST_EFFICIENCY) + (timeHours * EV_SPECS.AC_VAMPIRE_DRAIN_KW)) * (Number(pricePerUnit) || 0);
+      } else {
         cost = (energyNeeded / EV_SPECS.DC_COST_EFFICIENCY) * (Number(pricePerUnit) || 0);
       }
-      return { hours: Math.floor(timeHours), minutes: Math.round((timeHours%1)*60), actualPower, bottleneck, error: null, cost };
+
+      return { hours: Math.floor(totalMins / 60), minutes: totalMins % 60, actualPower, bottleneck, error: null, cost };
     };
 
-    const isDuplicateRecord = (item, targetItem) => {
-       if (!targetItem) return false;
-       return Number(item.timestamp) === Number(targetItem.timestamp) && 
-              Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05 && 
-              Number(item.startSoC) === Number(targetItem.startSoC) && 
-              Number(item.targetSoC) === Number(targetItem.targetSoC);
-    };
-
-    const Icon = memo(({ name, className = "w-5 h-5" }) => {
+    const Icon = ({ name, className = "w-5 h-5" }) => {
       const paths = {
-        zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />, clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 16 14" /></>,
+        zap: <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />,
+        clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 16 14" /></>,
+        wallet: <><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4" /><path d="M4 6v12c0 1.1.9 2 2 2h14v-8" /><path d="M18 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" /></>,
         save: <><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></>,
         history: <><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></>,
         trash: <><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></>,
         edit: <><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></>,
         user: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></>,
         settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83 2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></>,
-        list: <><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /></>, chart: <><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></>,
-        chevron: <polyline points="6 9 12 15 18 9" />, download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>, upload: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>
+        list: <><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /></>,
+        chart: <><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></>,
+        chevron: <polyline points="6 9 12 15 18 9" />,
+        download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
+        upload: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></>
       };
-      return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{paths[name]}</svg>;
-    });
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+          {paths[name]}
+        </svg>
+      );
+    };
 
-    const StyledSlider = memo(({ min, max, step = "1", value, onChange, colorCls }) => (
-      <input type="range" min={min} max={max} step={step} value={value} onChange={onChange} className={`w-full ${colorCls}`} />
-    ));
+    const GoogleIcon = ({className}) => (
+      <svg className={className} viewBox="0 0 24 24">
+        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+      </svg>
+    );
 
     function useSystemData(onAlertTriggered) {
-      const [user, setUser] = useState(null); const [history, setHistory] = useState([]);
-      const [storageMode, setStorageMode] = useState('local'); const [isAuthLoading, setIsAuthLoading] = useState(false);
+      const [user, setUser] = useState(null);
+      const [history, setHistory] = useState([]);
+      const [isReady, setIsReady] = useState(false);
+      const [storageMode, setStorageMode] = useState('local'); 
+      const [isAuthLoading, setIsAuthLoading] = useState(false);
       
+      const deletedIdsRef = useRef(new Set());
+      const deletedSignaturesRef = useRef(new Set());
+
       const loadLocalData = () => {
-        try { 
-          const parsed = JSON.parse(localStorage.getItem('geely_ex2_history') || '[]');
-          setHistory(parsed.map((item, idx) => ({ ...item, id: item.id ? String(item.id) : ('loc_' + (item.timestamp || Date.now()) + '_' + idx) }))); 
-        } catch(e){ setHistory([]); } 
-        setUser({ uid: 'local_user', isAnonymous: true }); setStorageMode('local');
+        const savedData = localStorage.getItem('geely_ex2_history');
+        if (savedData) { 
+          try { 
+            const parsed = JSON.parse(savedData);
+            const cleaned = parsed.map((item, idx) => ({
+              ...item,
+              id: item.id ? String(item.id) : ('loc_' + (item.timestamp || Date.now()) + '_' + idx)
+            })).filter(item => {
+              if (deletedIdsRef.current.has(item.id)) return false;
+              const sig = `${Number(item.timestamp)}_${Number(item.cost)}`;
+              if (deletedSignaturesRef.current.has(sig)) return false;
+              return true;
+            });
+            setHistory(cleaned); 
+          } catch(e){ setHistory([]); } 
+        } else {
+          setHistory([]);
+        }
+        setUser({ uid: 'local_user', isAnonymous: true });
+        setStorageMode('local');
+        setIsReady(true);
       };
 
       useEffect(() => {
         if (!auth) return loadLocalData();
         return onAuthStateChanged(auth, async (u) => {
-          if (u) { setUser(u); setStorageMode(u.isAnonymous ? 'local' : 'cloud'); } 
-          else { try { await signInAnonymously(auth); } catch (e) { loadLocalData(); } }
+          if (u) { 
+            setUser(u); 
+            setStorageMode(u.isAnonymous ? 'local' : 'cloud'); 
+          } else {
+            try { await signInAnonymously(auth); } 
+            catch (e) { loadLocalData(); }
+          }
         });
       }, []);
 
       useEffect(() => {
-        if (!user || !db || user.isAnonymous) { if (storageMode === 'local' && user?.uid !== 'local_user') loadLocalData(); return; }
-        localStorage.removeItem('geely_ex2_history');
-        return onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), (snapshot) => {
-          setHistory(snapshot.docs.map(doc => ({ ...doc.data(), id: String(doc.id) })).sort((a, b) => Number(b.timestamp) - Number(a.timestamp)));
-        }, (err) => { console.error(err); setStorageMode('local'); loadLocalData(); });
+        if (!user || !db || user.uid === 'local_user' || user.isAnonymous) {
+          if (storageMode === 'local' && user?.uid !== 'local_user') loadLocalData();
+          return;
+        }
+
+        const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
+        
+        // Wipe local storage so it NEVER re-uploads old data
+        localStorage.removeItem('geely_ex2_history'); 
+
+        return onSnapshot(colRef, (snapshot) => {
+          const rawData = snapshot.docs.map(docSnap => ({ 
+            ...docSnap.data(), 
+            id: String(docSnap.id) 
+          })).filter(item => {
+            if (deletedIdsRef.current.has(item.id)) return false;
+            const sig = `${Number(item.timestamp)}_${Number(item.cost)}`;
+            if (deletedSignaturesRef.current.has(sig)) return false;
+            return true;
+          });
+
+          rawData.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+          setHistory(rawData);
+          setIsReady(true);
+        }, (err) => { 
+          console.error("Snapshot error:", err);
+          setStorageMode('local'); 
+          loadLocalData(); 
+        });
       }, [user, storageMode]);
 
       const handleGoogleSignIn = async () => {
-        if (!auth) return; setIsAuthLoading(true);
+        if (!auth) return;
+        if (window.self !== window.top) {
+          return onAlertTriggered({ title: "Security Warning", message: "Please open in a direct tab to login." });
+        }
+        setIsAuthLoading(true);
+        const provider = new GoogleAuthProvider();
         try {
-          const provider = new GoogleAuthProvider();
           if (auth.currentUser?.isAnonymous) {
             try { await linkWithPopup(auth.currentUser, provider); } 
-            catch (err) { await signInWithPopup(auth, provider); }
+            catch (linkErr) {
+              if (linkErr.code === 'auth/credential-already-in-use' || linkErr.code === 'auth/email-already-in-use') {
+                const credential = GoogleAuthProvider.credentialFromError(linkErr);
+                if (credential) await signInWithCredential(auth, credential);
+                else await signInWithPopup(auth, provider);
+              } else { throw linkErr; }
+            }
           } else { await signInWithPopup(auth, provider); }
-        } catch (e) { if (e.code !== 'auth/popup-closed-by-user') onAlertTriggered({ title: "Login Failed", message: e.message }); } 
-        finally { setIsAuthLoading(false); }
+        } catch (e) {
+          if (e.code !== 'auth/popup-closed-by-user') {
+            onAlertTriggered({ title: "Login Failed", message: e.message });
+          }
+        } finally { setIsAuthLoading(false); }
       };
 
+      const handleSignOut = async () => {
+        if (!auth) return;
+        try { await signOut(auth); loadLocalData(); } catch (e) {}
+      };
+
+      // ADD RECORD (Optimistic UI - No HANGING)
       const addRecord = async (record) => {
-        if (storageMode === 'cloud' && db && user?.uid && !user.isAnonymous) {
-          const newRecord = { id: 'temp_' + Date.now(), ...record };
+        const cleanRecord = { ...record };
+        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
+          
+          // 1. Instantly update UI with a temporary ID
+          const tempId = 'temp_' + Date.now();
+          const newRecord = { id: tempId, ...cleanRecord };
           setHistory(prev => [newRecord, ...prev].sort((a,b) => Number(b.timestamp) - Number(a.timestamp)));
-          addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), record).catch(e => {
-            if (e.code === 'permission-denied') onAlertTriggered({ title: "Cloud Denied", message: "Firebase Rules Blocked. Please fix Rules." });
-          });
+
+          // 2. Background Sync (Fire-and-Forget)
+          addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanRecord)
+            .catch(error => {
+              console.error("Firebase Add Error:", error);
+              if (error.code === 'permission-denied') {
+                onAlertTriggered({ title: "Cloud Denied", message: "Firebase Rules ปฏิเสธการบันทึกข้อมูล (อาจหมดอายุ 30 วัน)" });
+              }
+            });
+          
+          return true;
         } else {
-          const newRecord = { id: 'loc_' + Date.now(), ...record };
+          const newRecord = { id: 'loc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...cleanRecord };
           const updated = [newRecord, ...history].sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
-          setHistory(updated); localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
-        } return true;
+          setHistory(updated);
+          localStorage.setItem('geely_ex2_history', JSON.stringify(updated));
+          return true;
+        }
       };
 
+      // DELETE RECORD (Absolute Query & Eradicate)
       const deleteRecord = async (id, targetItem) => {
         const targetId = String(id).trim();
-        setHistory(prev => prev.filter(item => !(String(item.id) === targetId || (targetId.startsWith('loc_') && isDuplicateRecord(item, targetItem)))));
-        if (storageMode === 'cloud' && db && user?.uid && !user.isAnonymous) {
-           try {
-              const snapshot = await getDocs(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'));
-              snapshot.docs.forEach(docSnap => {
-                 if (String(docSnap.id) === targetId || isDuplicateRecord(docSnap.data(), targetItem)) deleteDoc(docSnap.ref);
-              });
-           } catch (e) { onAlertTriggered({ title: "Delete Error", message: e.message }); }
-        } else {
-           try {
-              const filtered = JSON.parse(localStorage.getItem('geely_ex2_history')||'[]').filter(item => !(String(item.id) === targetId || isDuplicateRecord(item, targetItem)));
-              localStorage.setItem('geely_ex2_history', JSON.stringify(filtered));
-           } catch(e){}
-        } return true; 
-      };
+        const isLocalId = targetId.startsWith('loc_') || targetId.startsWith('imp_') || targetId.startsWith('temp_');
+        
+        // 1. OPTIMISTIC UI INSTANT WIPE
+        setHistory(prev => prev.filter(item => {
+           if (String(item.id) === targetId) return false;
+           if (isLocalId && targetItem) {
+              const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
+              const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
+              const isSameStart = Number(item.startSoC) === Number(targetItem.startSoC);
+              const isSameTarget = Number(item.targetSoC) === Number(targetItem.targetSoC);
+              if (isSameTime && isSameCost && isSameStart && isSameTarget) return false;
+           }
+           return true;
+        }));
 
-      const updateRecord = async (id, newCost, newTimestamp, targetItem) => {
-        const targetId = String(id).trim(), nCost = Number(newCost) || 0, nTs = Number(newTimestamp) || Date.now();
-        setHistory(prev => prev.map(item => (String(item.id) === targetId || isDuplicateRecord(item, targetItem)) ? { ...item, id: targetId, cost: nCost, timestamp: nTs } : item).sort((a,b) => Number(b.timestamp) - Number(a.timestamp)));
-        if (storageMode === 'cloud' && db && user?.uid && !user.isAnonymous) {
+        // 2. CLOUD SYNC (Find Absolute Server Reference & Destroy)
+        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
            try {
               const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
-              const snapshot = await getDocs(colRef); let found = false;
+              const snapshot = await getDocs(colRef); // Fetch live truth from server
+              
+              const deletePromises = [];
               snapshot.docs.forEach(docSnap => {
-                 if (String(docSnap.id) === targetId || isDuplicateRecord(docSnap.data(), targetItem)) { updateDoc(docSnap.ref, { cost: nCost, timestamp: nTs }); found = true; }
+                 const data = docSnap.data();
+                 const isIdMatch = String(docSnap.id) === targetId;
+                 
+                 let isDupMatch = false;
+                 if (isLocalId && targetItem && !isIdMatch) {
+                    const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
+                    const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
+                    const isSameStart = Number(data.startSoC) === Number(targetItem.startSoC);
+                    const isSameTarget = Number(data.targetSoC) === Number(targetItem.targetSoC);
+                    isDupMatch = isSameTime && isSameCost && isSameStart && isSameTarget;
+                 }
+                 
+                 if (isIdMatch || isDupMatch) {
+                    deletePromises.push(deleteDoc(docSnap.ref));
+                 }
               });
-              if (!found && targetItem) { const cRec = { ...targetItem, cost: nCost, timestamp: nTs }; delete cRec.id; addDoc(colRef, cRec); }
-           } catch (e) { onAlertTriggered({ title: "Update Error", message: e.message }); }
-        } else {
+              
+              await Promise.all(deletePromises);
+           } catch (error) {
+              console.error("Firebase Delete Error:", error);
+              onAlertTriggered({ 
+                title: "ลบข้อมูลไม่สำเร็จ (Cloud Error)", 
+                message: "สาเหตุ: " + error.message + "\n\n(หากเกิดจาก Permission Denied โปรดอัปเดต Firebase Rules ตามที่แนะนำครับ)" 
+              });
+           }
+        } 
+        
+        // 3. LOCAL SYNC
+        if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
+           const currentLocal = localStorage.getItem('geely_ex2_history');
+           if (currentLocal) {
+              try {
+                 const parsed = JSON.parse(currentLocal);
+                 const filtered = parsed.filter(item => {
+                    if (String(item.id) === targetId) return false;
+                    if (isLocalId && targetItem) {
+                       const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
+                       const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
+                       const isSameStart = Number(item.startSoC) === Number(targetItem.startSoC);
+                       const isSameTarget = Number(item.targetSoC) === Number(targetItem.targetSoC);
+                       if (isSameTime && isSameCost && isSameStart && isSameTarget) return false;
+                    }
+                    return true;
+                 });
+                 localStorage.setItem('geely_ex2_history', JSON.stringify(filtered));
+              } catch(e){}
+           }
+        }
+        
+        return true; 
+      };
+
+      // UPDATE RECORD (Absolute Query & Modify)
+      const updateRecord = async (id, newCost, newTimestamp, targetItem) => {
+        const targetId = String(id).trim();
+        const numericCost = Number(newCost) || 0;
+        const numericTs = Number(newTimestamp) || Date.now();
+        const isLocalId = targetId.startsWith('loc_') || targetId.startsWith('imp_') || targetId.startsWith('temp_');
+
+        // 1. OPTIMISTIC UI INSTANT UPDATE
+        setHistory(prev => {
+          const next = prev.map(item => {
+            const isIdMatch = String(item.id) === targetId;
+            let isDupMatch = false;
+            if (isLocalId && targetItem && !isIdMatch) {
+               const isSameTime = Number(item.timestamp) === Number(targetItem.timestamp);
+               const isSameCost = Math.abs(Number(item.cost) - Number(targetItem.cost)) < 0.05;
+               const isSameStart = Number(item.startSoC) === Number(targetItem.startSoC);
+               const isSameTarget = Number(item.targetSoC) === Number(targetItem.targetSoC);
+               isDupMatch = isSameTime && isSameCost && isSameStart && isSameTarget;
+            }
+            if (isIdMatch || isDupMatch) {
+              return { ...item, id: targetId, cost: numericCost, timestamp: numericTs };
+            }
+            return item;
+          });
+          return next.filter((item, index, self) => index === self.findIndex((t) => String(t.id) === String(item.id)))
+                     .sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
+        });
+
+        // 2. CLOUD SYNC
+        if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
            try {
-              const upLocal = JSON.parse(localStorage.getItem('geely_ex2_history')||'[]').map(item => String(item.id) === targetId ? { ...item, cost: nCost, timestamp: nTs } : item);
-              localStorage.setItem('geely_ex2_history', JSON.stringify(upLocal));
-           } catch(e){}
-        } return true;
+              const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory');
+              const snapshot = await getDocs(colRef); // Fetch live truth from server
+              
+              const opsPromises = [];
+              let foundTarget = false;
+
+              snapshot.docs.forEach(docSnap => {
+                 const data = docSnap.data();
+                 const isIdMatch = String(docSnap.id) === targetId;
+                 
+                 let isDupMatch = false;
+                 if (isLocalId && targetItem && !isIdMatch) {
+                    const isSameTime = Number(data.timestamp) === Number(targetItem.timestamp);
+                    const isSameCost = Math.abs(Number(data.cost) - Number(targetItem.cost)) < 0.05;
+                    const isSameStart = Number(data.startSoC) === Number(targetItem.startSoC);
+                    const isSameTarget = Number(data.targetSoC) === Number(targetItem.targetSoC);
+                    isDupMatch = isSameTime && isSameCost && isSameStart && isSameTarget;
+                 }
+                 
+                 if (isIdMatch || isDupMatch) {
+                    opsPromises.push(updateDoc(docSnap.ref, { cost: numericCost, timestamp: numericTs }));
+                    foundTarget = true;
+                 }
+              });
+              
+              // If the original ID wasn't found in the cloud (legacy import), add it as a new document
+              if (!foundTarget && targetItem) {
+                 const cleanRecord = { ...targetItem, cost: numericCost, timestamp: numericTs };
+                 delete cleanRecord.id; 
+                 opsPromises.push(addDoc(colRef, cleanRecord));
+              }
+
+              await Promise.all(opsPromises);
+           } catch (error) {
+              console.error("Firebase Update Error:", error);
+              onAlertTriggered({ title: "อัปเดตข้อมูลไม่สำเร็จ (Cloud Error)", message: error.message });
+           }
+        } 
+        
+        // 3. LOCAL SYNC
+        if (storageMode === 'local' || user?.isAnonymous || user?.uid === 'local_user') {
+          const currentLocal = localStorage.getItem('geely_ex2_history');
+          if (currentLocal) {
+            try {
+              const parsed = JSON.parse(currentLocal);
+              const updatedLocal = parsed.map(item => String(item.id) === targetId ? { ...item, cost: numericCost, timestamp: numericTs } : item);
+              localStorage.setItem('geely_ex2_history', JSON.stringify(updatedLocal));
+            } catch(e){}
+          }
+        }
+        
+        return true;
       };
 
       const importRecords = async (importedList) => {
-        if (!Array.isArray(importedList)) return 0;
-        const existSigs = new Set(history.map(i => `${Number(i.timestamp)}_${Number(i.cost).toFixed(2)}`));
-        let addedCount = 0; const newLocals = [];
-        importedList.forEach(raw => {
-          const ts = Number(raw.timestamp)||Date.now(), cost = Number(raw.cost)||0, sig = `${ts}_${cost.toFixed(2)}`;
-          if (existSigs.has(sig) || !raw.timestamp) return; existSigs.add(sig);
-          const cleanItem = { timestamp: ts, cost, startSoC: Number(raw.startSoC)||0, targetSoC: Number(raw.targetSoC)||100, chargerType: raw.chargerType||'AC', power: raw.power||'10A', pricePerUnit: Number(raw.pricePerUnit)||4.5 };
-          if (storageMode === 'cloud' && db && user?.uid && !user.isAnonymous) addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanItem);
-          else newLocals.push({ id: 'imp_' + Date.now() + Math.random(), ...cleanItem });
+        if (!Array.isArray(importedList) || importedList.length === 0) return 0;
+        
+        // 1. Create a registry of existing data signatures to prevent duplicates
+        const existingSignatures = new Set(
+          history.map(item => `${Number(item.timestamp)}_${Number(item.cost).toFixed(2)}`)
+        );
+
+        let addedCount = 0;
+        const newItemsToSave = [];
+
+        for (const rawItem of importedList) {
+          if (!rawItem.timestamp || rawItem.cost === undefined) continue;
+          
+          const ts = Number(rawItem.timestamp) || Date.now();
+          const cost = Number(rawItem.cost) || 0;
+          const sig = `${ts}_${cost.toFixed(2)}`;
+
+          // 2. SKIP if duplicate is found in existing data OR already processed in this import
+          if (existingSignatures.has(sig)) {
+            continue; 
+          }
+          existingSignatures.add(sig); // Register to prevent duplicates inside the JSON file itself
+
+          const cleanItem = {
+            timestamp: ts,
+            cost: cost,
+            startSoC: Number(rawItem.startSoC) || 0,
+            targetSoC: Number(rawItem.targetSoC) || 100,
+            chargerType: rawItem.chargerType || 'AC',
+            power: rawItem.power || '10A',
+            pricePerUnit: Number(rawItem.pricePerUnit) || 4.5
+          };
+
+          if (storageMode === 'cloud' && db && user?.uid && user.uid !== 'local_user' && !user.isAnonymous) {
+            // Background sync
+            addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'chargeHistory'), cleanItem).catch(e=>console.error(e));
+          } else {
+            newItemsToSave.push({ id: 'imp_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7), ...cleanItem });
+          }
           addedCount++;
-        });
-        if (storageMode === 'local' && newLocals.length > 0) {
-          const merged = [...newLocals, ...history].sort((a,b) => Number(b.timestamp) - Number(a.timestamp));
-          setHistory(merged); localStorage.setItem('geely_ex2_history', JSON.stringify(merged));
-        } return addedCount;
+        }
+
+        if (storageMode === 'local' && newItemsToSave.length > 0) {
+          const merged = [...newItemsToSave, ...history].sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+          setHistory(merged);
+          localStorage.setItem('geely_ex2_history', JSON.stringify(merged));
+        }
+
+        return addedCount;
       };
 
-      return { user, history, storageMode, isAuthLoading, handleGoogleSignIn, handleSignOut: () => signOut(auth), addRecord, deleteRecord, updateRecord, importRecords };
+      return { user, history, isReady, storageMode, isAuthLoading, handleGoogleSignIn, handleSignOut, addRecord, deleteRecord, updateRecord, importRecords };
+    }
+
+    function useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC) {
+      return useMemo(() => {
+        return calculateChargeStats(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC);
+      }, [currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC]);
     }
 
     const GaugeCanvas = memo(({ currentSoC, targetSoC, chargerType }) => {
       const canvasRef = useRef(null);
       useEffect(() => {
-        const ctx = canvasRef.current?.getContext('2d'); if (!ctx) return;
-        const w = 320, h = 160, cx = w/2, cy = h-10, r = w/2-30;
-        canvasRef.current.width = w; canvasRef.current.height = h; ctx.clearRect(0, 0, w, h);
-        const grad = ctx.createLinearGradient(0, cy, w, cy); grad.addColorStop(0, '#06b6d4'); grad.addColorStop(0.5, '#8b5cf6'); grad.addColorStop(1, '#ec4899');
+        const ctx = canvasRef.current?.getContext('2d');
+        if (!ctx) return;
+        const w = 320, h = 160, dpr = window.devicePixelRatio || 1;
+        canvasRef.current.width = w * dpr; canvasRef.current.height = h * dpr;
+        ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+
+        const cx = w / 2, cy = h - 10, r = w / 2 - 30;
+        const grad = ctx.createLinearGradient(0, cy, w, cy);
+        grad.addColorStop(0, '#06b6d4'); grad.addColorStop(0.5, '#8b5cf6'); grad.addColorStop(1, '#ec4899');
+
         ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, 0); ctx.lineWidth = 18; ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.stroke();
+        
         const cAngle = Math.PI + (Math.PI * (currentSoC / 100));
-        ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, cAngle); ctx.lineWidth = 18; ctx.lineCap = 'round'; ctx.strokeStyle = grad; ctx.shadowColor = '#ec4899'; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0;
+        ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI, cAngle); ctx.lineWidth = 18; ctx.lineCap = 'round'; ctx.strokeStyle = grad; 
+        ctx.shadowColor = '#ec4899'; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0;
+
         if (targetSoC > currentSoC) {
           const tAngle = Math.PI + (Math.PI * (targetSoC / 100));
           ctx.beginPath(); ctx.arc(cx, cy, r, cAngle, tAngle); ctx.lineWidth = 18; ctx.setLineDash([4, 4]);
-          const forecastGrad = ctx.createLinearGradient(0, 0, w, 0); forecastGrad.addColorStop(0, '#a855f7'); forecastGrad.addColorStop(1, targetSoC > 80 ? '#fb923c' : '#ec4899');
+          const forecastGrad = ctx.createLinearGradient(0, 0, w, 0);
+          forecastGrad.addColorStop(0, '#a855f7'); forecastGrad.addColorStop(1, targetSoC > 80 ? '#fb923c' : '#ec4899');
           ctx.strokeStyle = forecastGrad; ctx.stroke(); ctx.setLineDash([]);
         }
+
+        if (chargerType === 'DC') {
+          const markerAngle = Math.PI + (Math.PI * 0.8);
+          const mx = cx + Math.cos(markerAngle) * (r - 14), my = cy + Math.sin(markerAngle) * (r - 14);
+          const mox = cx + Math.cos(markerAngle) * (r + 14), moy = cy + Math.sin(markerAngle) * (r + 14);
+          ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(mox, moy); ctx.lineWidth = 4; ctx.strokeStyle = '#f43f5e'; ctx.shadowColor = '#f43f5e'; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0;
+          ctx.fillStyle = '#fca5a5'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('BMS LIMIT', mox + 24, moy - 4);
+        }
       }, [currentSoC, targetSoC, chargerType]);
+
       return <canvas ref={canvasRef} className="w-full max-w-[320px] aspect-[2/1] z-10 drop-shadow-2xl" />;
     });
 
-    const AppAlertModal = ({ data, onClose }) => data ? (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"><div className="bg-[#18152e] border border-white/10 rounded-2xl w-full max-w-sm p-6 text-center shadow-2xl"><h4 className="text-lg font-black text-rose-400 mb-2">{data.title}</h4><p className="text-gray-300 text-sm whitespace-pre-wrap mb-6">{data.message}</p><button onClick={onClose} className="w-full py-2.5 bg-cyan-500 text-black font-bold rounded-xl text-sm">OK</button></div></div>
-    ) : null;
+    const AppAlertModal = ({ alertData, onClose }) => {
+      if (!alertData) return null;
+      return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#18152e] border border-white/10 rounded-2xl w-full max-w-sm p-6 text-center shadow-2xl">
+            <h4 className="text-lg font-black text-rose-400 mb-2">{alertData.title}</h4>
+            <p className="text-gray-300 text-sm whitespace-pre-wrap mb-6">{alertData.message}</p>
+            <button onClick={onClose} className="w-full py-2.5 bg-cyan-500 text-black font-bold rounded-xl text-sm">OK</button>
+          </div>
+        </div>
+      );
+    };
 
-    const ConfirmDeleteModal = ({ item, onConfirm, onCancel }) => item ? (
-      <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"><div className="bg-[#120F24] border border-rose-500/30 rounded-3xl w-full max-w-xs p-6 text-center shadow-[0_0_50px_-12px_rgba(244,63,94,0.4)]"><div className="w-14 h-14 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-rose-500/30"><Icon name="trash" className="w-6 h-6 text-rose-500" /></div><h4 className="text-lg font-black text-white mb-2">ยืนยันการลบ</h4><p className="text-gray-400 text-[11px] mb-6">คุณต้องการลบรายการชาร์จ <span className="text-amber-400 font-mono font-bold text-sm">฿{Number(item.cost).toFixed(2)}</span> ใช่หรือไม่?<br/>(การลบนี้จะนำข้อมูลออกจากระบบถาวร)</p><div className="flex gap-3"><button onClick={onCancel} className="flex-1 py-2.5 bg-white/5 border border-white/10 text-white font-bold rounded-xl text-xs">ยกเลิก</button><button onClick={onConfirm} className="flex-1 py-2.5 bg-rose-500/20 text-rose-400 border border-rose-500/50 font-bold rounded-xl text-xs">ลบทิ้ง</button></div></div></div>
-    ) : null;
+    const ConfirmDeleteModal = ({ item, onConfirm, onCancel }) => {
+      const [isDeleting, setIsDeleting] = useState(false);
+      
+      if (!item) return null;
+      return (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+          <div className="bg-[#120F24] border border-rose-500/30 rounded-3xl w-full max-w-xs p-6 text-center shadow-[0_0_50px_-12px_rgba(244,63,94,0.4)]">
+            <div className="w-14 h-14 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-rose-500/30">
+              <Icon name="trash" className="w-6 h-6 text-rose-500" />
+            </div>
+            <h4 className="text-lg font-black text-white mb-2">Confirm Delete</h4>
+            <p className="text-gray-400 text-[11px] mb-6">Are you sure you want to delete this record of <span className="text-amber-400 font-mono font-bold text-sm">฿{Number(item.cost).toFixed(2)}</span>?<br/>(This action cannot be undone)</p>
+            <div className="flex gap-3">
+              <button disabled={isDeleting} onClick={onCancel} className="flex-1 py-2.5 bg-white/5 border border-white/10 text-white font-bold rounded-xl text-xs hover:bg-white/10 transition-all disabled:opacity-50">Cancel</button>
+              <button 
+                disabled={isDeleting} 
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  setIsDeleting(true);
+                  try {
+                    await onConfirm();
+                  } catch(err) {
+                    console.error(err);
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                }} 
+                className="flex-1 py-2.5 bg-rose-500/20 text-rose-400 border border-rose-500/50 font-bold rounded-xl text-xs hover:bg-rose-500/30 transition-all disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
 
     const RecordItemCard = ({ item, activeItemId, setActiveItemId, editingId, setEditingId, editCost, setEditCost, editDateTime, setEditDateTime, systemDB, onDeleteRequest }) => {
-      const isEditing = String(editingId) === String(item.id), isFocused = String(activeItemId) === String(item.id);
+      const [isSavingEdit, setIsSavingEdit] = useState(false);
+      const itemIdStr = String(item.id);
+      const isEditing = String(editingId) === itemIdStr;
+      const isFocused = String(activeItemId) === itemIdStr;
+
       return (
-        <div onClick={() => !isEditing && setActiveItemId(isFocused ? null : String(item.id))} className={`p-3.5 rounded-2xl border transition-all cursor-pointer mb-2 ${isFocused ? 'bg-white/5 border-amber-500/50' : 'bg-black/40 border-white/5'}`}>
+        <div 
+          onClick={(e) => {
+            if (isEditing) return;
+            setActiveItemId(isFocused ? null : itemIdStr);
+          }} 
+          className={`p-3.5 rounded-2xl border transition-all cursor-pointer mb-2 ${isFocused ? 'bg-white/5 border-amber-500/50' : 'bg-black/40 border-white/5'}`}
+        >
           {isEditing ? (
-            <div className="space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
               <h4 className="text-xs font-bold text-amber-400 uppercase">แก้ไขรายการชาร์จ</h4>
-              <input type="datetime-local" value={editDateTime} onChange={e => setEditDateTime(e.target.value)} className="w-full bg-[#050B14] border border-white/10 text-amber-300 rounded-xl px-3 py-1.5 text-xs font-mono" />
-              <div className="flex items-center gap-2"><span className="text-amber-400 font-bold">฿</span><input type="number" step="0.01" value={editCost} onChange={e => setEditCost(e.target.value)} className="w-full bg-[#050B14] border border-white/10 text-amber-300 rounded-xl px-3 py-1.5 text-right font-mono text-sm font-bold" /></div>
+              <input 
+                type="datetime-local" 
+                value={editDateTime} 
+                onChange={(e) => setEditDateTime(e.target.value)} 
+                disabled={isSavingEdit}
+                className="w-full bg-[#050B14] border border-white/10 text-amber-300 rounded-xl px-3 py-1.5 text-xs font-mono disabled:opacity-50" 
+              />
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400 font-bold">฿</span>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  value={editCost} 
+                  onChange={(e) => setEditCost(e.target.value)}
+                  disabled={isSavingEdit}
+                  className="w-full bg-[#050B14] border border-white/10 text-amber-300 rounded-xl px-3 py-1.5 text-right font-mono text-sm font-bold disabled:opacity-50" 
+                />
+              </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button onClick={() => setEditingId(null)} className="px-3.5 py-1.5 bg-white/10 text-xs rounded-lg font-bold">ยกเลิก</button>
-                <button onClick={() => { const ts = editDateTime ? new Date(editDateTime).getTime() : item.timestamp; systemDB.updateRecord(item.id, editCost, isNaN(ts)?item.timestamp:ts, item); setEditingId(null); setActiveItemId(null); }} className="px-3.5 py-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs rounded-lg font-bold">บันทึก</button>
+                <button 
+                  disabled={isSavingEdit}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setEditingId(null);
+                  }} 
+                  className="px-3.5 py-1.5 bg-white/10 text-xs rounded-lg hover:bg-white/20 font-bold disabled:opacity-50"
+                >
+                  ยกเลิก
+                </button>
+                <button 
+                  disabled={isSavingEdit}
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsSavingEdit(true);
+                    try {
+                      const ts = editDateTime ? new Date(editDateTime).getTime() : item.timestamp;
+                      const validTs = isNaN(ts) ? item.timestamp : ts;
+                      const success = await systemDB.updateRecord(itemIdStr, Number(editCost) || 0, validTs, item);
+                      if (success) {
+                        setEditingId(null); 
+                        setActiveItemId(null);
+                      }
+                    } catch(err) {
+                      console.error(err);
+                    } finally {
+                      setIsSavingEdit(false);
+                    }
+                  }} 
+                  className="px-3.5 py-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs rounded-lg font-bold hover:bg-amber-500/30 disabled:opacity-50"
+                >
+                  {isSavingEdit ? 'Saving...' : 'บันทึก'}
+                </button>
               </div>
             </div>
           ) : (
             <>
               <div className="flex justify-between items-start">
                 <div>
-                  <div className="text-[10px] text-white/40 font-bold uppercase mb-1">{new Date(Number(item.timestamp)).toLocaleDateString('th-TH', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} น.</div>
-                  <div className="flex items-center gap-2"><span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${item.chargerType==='DC'?'bg-cyan-500/20 text-cyan-300':'bg-fuchsia-500/20 text-fuchsia-300'}`}>{item.chargerType} {item.power}</span><span className="text-xs font-bold text-white/80">{item.startSoC}% → {item.targetSoC}%</span></div>
-                </div><span className="text-base font-black text-amber-300 font-mono">฿{Number(item.cost).toFixed(2)}</span>
+                  <div className="text-[10px] text-white/40 font-bold uppercase mb-1">
+                    {new Date(Number(item.timestamp) || item.timestamp).toLocaleDateString('th-TH', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} น.
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${item.chargerType==='DC'?'bg-cyan-500/20 text-cyan-300':'bg-fuchsia-500/20 text-fuchsia-300'}`}>
+                      {item.chargerType} {item.power}
+                    </span>
+                    <span className="text-xs font-bold text-white/80">{item.startSoC}% → {item.targetSoC}%</span>
+                  </div>
+                </div>
+                <span className="text-base font-black text-amber-300 font-mono">฿{Number(item.cost).toFixed(2)}</span>
               </div>
               {isFocused && (
-                <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-white/5" onClick={e => e.stopPropagation()}>
-                  <button onClick={() => { setEditingId(String(item.id)); setEditCost(Number(item.cost).toFixed(2)); setEditDateTime(getSafeISODateTime(item.timestamp)); }} className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg text-blue-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-blue-500/20"><Icon name="edit" className="w-3.5 h-3.5" /> แก้ไข</button>
-                  <button onClick={() => onDeleteRequest(item)} className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-rose-500/20"><Icon name="trash" className="w-3.5 h-3.5" /> ลบ</button>
+                <div className="flex justify-end gap-2 mt-2 pt-2 border-t border-white/5" onClick={(e) => e.stopPropagation()}>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(itemIdStr); 
+                      setEditCost(Number(item.cost).toFixed(2));
+                      setEditDateTime(getSafeISODateTime(item.timestamp));
+                    }} 
+                    className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg text-blue-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-blue-500/20"
+                  >
+                    <Icon name="edit" className="w-3.5 h-3.5" /> แก้ไข
+                  </button>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteRequest(item);
+                    }} 
+                    className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 rounded-lg text-rose-400 flex items-center gap-1 text-[11px] uppercase font-bold border border-rose-500/20"
+                  >
+                    <Icon name="trash" className="w-3.5 h-3.5" /> ลบ
+                  </button>
                 </div>
               )}
             </>
@@ -276,150 +721,669 @@
     };
 
     function App() {
-      const [appAlert, setAppAlert] = useState(null); const systemDB = useSystemData(setAppAlert);
-      const [showHistory, setShowHistory] = useState(false); const [showAuthModal, setShowAuthModal] = useState(false); const [showCalib, setShowCalib] = useState(false);
-      const [calibVoltage, setCalibVoltage] = useState(229); const [calibOBC, setCalibOBC] = useState(94);
-      const [currentSoC, setCurrentSoC] = useState(30); const [targetSoC, setTargetSoC] = useState(80);
-      const [chargerType, setChargerType] = useState('AC'); const [dcPower, setDcPower] = useState(120); const [acPower, setAcPower] = useState(7);
-      const [acInputMode, setAcInputMode] = useState('A'); const [acAmps, setAcAmps] = useState(10);
-      const [scheduleMode, setScheduleMode] = useState('START_AT'); const [targetTime, setTargetTime] = useState('06:30'); const [userStartTime, setUserStartTime] = useState(getCurrentTimeStr());
-      const [pricePerUnit, setPricePerUnit] = useState(4.5);
+      const [appAlert, setAppAlert] = useState(null);
+      const systemDB = useSystemData(setAppAlert);
       
-      const getMonthKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
-      const [historyTab, setHistoryTab] = useState("records"); const [selectedMonthFilter, setSelectedMonthFilter] = useState(getMonthKey()); const [expandedMonthKey, setExpandedMonthKey] = useState(null);
-      const [activeItemId, setActiveItemId] = useState(null); const [editingId, setEditingId] = useState(null); const [editCost, setEditCost] = useState(""); const [editDateTime, setEditDateTime] = useState("");
-      const [isSaving, setIsSaving] = useState(false); const [itemToDelete, setItemToDelete] = useState(null);
+      const [showHistory, setShowHistory] = useState(false);
+      const [showAuthModal, setShowAuthModal] = useState(false);
+      const [showCalib, setShowCalib] = useState(false);
+      const [calibVoltage, setCalibVoltage] = useState(229); 
+      const [calibOBC, setCalibOBC] = useState(94); 
 
-      const calcDetails = useMemo(() => calculateChargeStats(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC), [currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC]);
+      const [currentSoC, setCurrentSoC] = useState(30);
+      const [targetSoC, setTargetSoC] = useState(80);
+      const [chargerType, setChargerType] = useState('AC');
+      const [dcPower, setDcPower] = useState(120);
+      const [acPower, setAcPower] = useState(7);
+      const [acInputMode, setAcInputMode] = useState('A'); 
+      const [acAmps, setAcAmps] = useState(10); 
+      const [scheduleMode, setScheduleMode] = useState('START_AT'); 
+      const [targetTime, setTargetTime] = useState('06:30'); 
+      const [userStartTime, setUserStartTime] = useState(getCurrentTimeStr()); 
+      const [pricePerUnit, setPricePerUnit] = useState(4.5);
+
+      const [historyTab, setHistoryTab] = useState("records");
+
+      const getCurrentMonthKey = () => {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      };
+
+      const [selectedMonthFilter, setSelectedMonthFilter] = useState(getCurrentMonthKey());
+      const [expandedMonthKey, setExpandedMonthKey] = useState(null);
+
+      const [activeItemId, setActiveItemId] = useState(null);
+      const [editingId, setEditingId] = useState(null);
+      const [editCost, setEditCost] = useState("");
+      const [editDateTime, setEditDateTime] = useState("");
+      const [isSaving, setIsSaving] = useState(false);
+      const [itemToDelete, setItemToDelete] = useState(null);
+
+      const fileInputRef = useRef(null);
+
+      const calcDetails = useChargeCalculation(currentSoC, targetSoC, chargerType, dcPower, acPower, acInputMode, acAmps, pricePerUnit, calibVoltage, calibOBC);
 
       const handleRecalculateOldData = async () => {
-        if (!confirm("คำนวณราคาใหม่ด้วยสูตรล่าสุด?")) return; setIsSaving(true); let updated = 0;
+        if (!confirm("ระบบจะคำนวณราคาของประวัติการชาร์จทั้งหมดใหม่ด้วยสูตรที่อัปเดตล่าสุด (รวมค่าแอร์และ Loss) ต้องการดำเนินการต่อหรือไม่?")) return;
+        
+        setIsSaving(true);
+        let updated = 0;
         try {
           for (const item of systemDB.history) {
-            const stats = calculateChargeStats(item.startSoC||0, item.targetSoC||100, item.chargerType||'AC', parseFloat(item.power)||120, parseFloat(item.power)||7, String(item.power).includes('A')?'A':'kW', parseInt(item.power)||10, item.pricePerUnit||4.5, calibVoltage, calibOBC);
-            if (!stats.error && Math.abs(stats.cost - (Number(item.cost)||0)) > 0.1) { await systemDB.updateRecord(item.id, stats.cost, item.timestamp, item); updated++; }
-          } setAppAlert({ title: "อัปเดตสำเร็จ", message: `คำนวณค่าไฟใหม่ ${updated} รายการ` });
-        } catch(e) { setAppAlert({ title: "Error", message: e.message }); } finally { setIsSaving(false); setShowCalib(false); }
+            let pAcPower = 7, pAcAmps = 10, pDcPower = 120, pAcInputMode = 'A';
+            const powerStr = String(item.power || '');
+            if (item.chargerType === 'AC') {
+               if (powerStr.includes('A')) {
+                  pAcInputMode = 'A';
+                  pAcAmps = parseInt(powerStr) || 10;
+               } else {
+                  pAcInputMode = 'kW';
+                  pAcPower = parseFloat(powerStr) || 7;
+               }
+            } else {
+               pDcPower = parseFloat(powerStr) || 120;
+            }
+
+            const stats = calculateChargeStats(
+               Number(item.startSoC) || 0, 
+               Number(item.targetSoC) || 100, 
+               item.chargerType || 'AC', 
+               pDcPower, pAcPower, pAcInputMode, pAcAmps, 
+               Number(item.pricePerUnit) || 4.5, 
+               calibVoltage, calibOBC
+            );
+            
+            if (!stats.error && Math.abs(stats.cost - (Number(item.cost) || 0)) > 0.1) {
+               await systemDB.updateRecord(String(item.id), stats.cost, item.timestamp, item);
+               updated++;
+            }
+          }
+          setAppAlert({ title: "อัปเดตข้อมูลสำเร็จ", message: `คำนวณและอัปเดตค่าไฟใหม่จำนวน ${updated} รายการ เรียบร้อยแล้ว` });
+        } catch (e) {
+          console.error(e);
+          setAppAlert({ title: "เกิดข้อผิดพลาด", message: e.message });
+        } finally {
+          setIsSaving(false);
+          setShowCalib(false);
+        }
       };
 
       const groupedHistory = useMemo(() => {
         const groups = {};
         systemDB.history.forEach(item => {
-          const d = new Date(Number(item.timestamp)); const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          if (!groups[key]) groups[key] = { key, label: d.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }), items: [], total: 0 };
-          groups[key].items.push(item); groups[key].total += Number(item.cost)||0;
+          const date = new Date(Number(item.timestamp) || item.timestamp);
+          const monthYear = date.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+          const sortKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+          if (!groups[sortKey]) groups[sortKey] = { key: sortKey, label: monthYear, items: [], total: 0, totalKwh: 0 };
+          groups[sortKey].items.push(item);
+          groups[sortKey].total += Number(item.cost) || 0;
+          groups[sortKey].totalKwh += (Number(item.cost) || 0) / (Number(item.pricePerUnit) || 4.5);
         });
-        return Object.values(groups).sort((a, b) => b.key.localeCompare(a.key));
+
+        return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a)).map(([_, v]) => v);
       }, [systemDB.history]);
 
-      const filteredRecords = groupedHistory.find(g => g.key === selectedMonthFilter)?.items || [];
-      const filteredTotalCost = filteredRecords.reduce((sum, item) => sum + (Number(item.cost)||0), 0);
-      const acPresets = [ {l: 'บ้าน Off-Peak', v: 2.6}, {l: 'ไฟบ้านปกติ', v: 4.5}, {l: 'บ้าน On-Peak', v: 5.8}, {l: 'AC สาธารณะ', v: 5.9} ];
-      const dcPresets = [7.9, 8.2, 8.4, 9.4].includes(pricePerUnit) ? [ {l: 'ตู้ 40-180kW', v: 7.9}, {l: 'ตู้ 180-200', v: 8.2}, {l: 'EV HUB/Fast', v: 8.4}, {l: 'Ultra 240+', v: 9.4} ] : [ {l: 'PEA (ถูกสุด)', v: 4.5}, {l: 'PEA / PluZ', v: 5.5}, {l: 'ReverCharger', v: 5.8}, {l: 'PluZ / Easy', v: 5.9} ];
+      const filteredRecords = useMemo(() => {
+        if (selectedMonthFilter === 'ALL') return systemDB.history;
+        const targetGroup = groupedHistory.find(g => g.key === selectedMonthFilter);
+        return targetGroup ? targetGroup.items : [];
+      }, [systemDB.history, groupedHistory, selectedMonthFilter]);
+
+      const filteredTotalCost = useMemo(() => {
+        return filteredRecords.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
+      }, [filteredRecords]);
+
+      const schedule = useMemo(() => {
+        if (calcDetails.error || (!calcDetails.hours && !calcDetails.minutes)) return null;
+        const totalChargeMinutes = (calcDetails.hours * 60) + calcDetails.minutes;
+        if (scheduleMode === 'FINISH_BY') {
+          const [tH, tM] = targetTime.split(':').map(Number);
+          let startMins = (tH * 60 + tM) - totalChargeMinutes;
+          let offset = '';
+          if (startMins < 0) { startMins = (24 * 60) + (startMins % (24 * 60)); offset = '(คืนก่อนหน้า)'; }
+          return {
+            inputLabel: `ต้องการใช้รถเวลา (${targetSoC}%)`, outputLabel: 'ตั้งเวลาเริ่มชาร์จ (ในแอพ)',
+            outputTime: `${String(Math.floor(startMins / 60) % 24).padStart(2, '0')}:${String(startMins % 60).padStart(2, '0')}`, dayOffset: offset,
+            inputValue: targetTime, setInputValue: setTargetTime
+          };
+        } else {
+          const [sH, sM] = userStartTime.split(':').map(Number);
+          let endMins = (sH * 60 + sM) + totalChargeMinutes;
+          return {
+            inputLabel: 'เสียบสายเริ่มชาร์จเวลา', outputLabel: `ชาร์จเสร็จถึงเป้า (${targetSoC}%)`,
+            outputTime: `${String(Math.floor(endMins / 60) % 24).padStart(2, '0')}:${String(endMins % 60).padStart(2, '0')}`,
+            dayOffset: endMins >= 24 * 60 ? '(วันถัดไป)' : '', inputValue: userStartTime, setInputValue: setUserStartTime
+          };
+        }
+      }, [calcDetails, targetTime, userStartTime, scheduleMode, targetSoC]);
+
+      const handleSaveSession = async () => {
+        if (!systemDB.user || calcDetails.error || isSaving) return;
+        setIsSaving(true);
+        try {
+          const success = await systemDB.addRecord({
+            timestamp: Date.now(),
+            cost: calcDetails.cost,
+            startSoC: currentSoC,
+            targetSoC,
+            chargerType,
+            power: chargerType === 'AC' ? (acInputMode === 'A' ? `${acAmps}A` : `${acPower}kW`) : `${dcPower}kW`,
+            pricePerUnit
+          });
+          if (success) {
+             setAppAlert({ title: "สำเร็จ", message: "บันทึกประวัติการชาร์จเรียบร้อยแล้ว" });
+          }
+        } finally {
+          setIsSaving(false);
+        }
+      };
+
+      const handleExportBackup = () => {
+        if (systemDB.history.length === 0) {
+          return setAppAlert({ title: "ไม่มีข้อมูล", message: "ไม่มีประวัติการชาร์จสำหรับส่งออก Backup" });
+        }
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(systemDB.history, null, 2));
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute("href", dataStr);
+        downloadAnchor.setAttribute("download", `geely_ex2_backup_${new Date().toISOString().slice(0, 10)}.json`);
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+      };
+
+      const handleImportFile = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          try {
+            const parsed = JSON.parse(event.target.result);
+            if (!Array.isArray(parsed)) throw new Error("รูปแบบไฟล์ Backup ไม่ถูกต้อง (ต้องเป็น JSON Array)");
+            const count = await systemDB.importRecords(parsed);
+            setAppAlert({ title: "นำเข้าข้อมูลสำเร็จ", message: `นำเข้าประวัติการชาร์จจำนวน ${count} รายการเรียบร้อยแล้ว` });
+          } catch (err) {
+            setAppAlert({ title: "นำเข้าไม่สำเร็จ", message: err.message || "ไม่สามารถอ่านไฟล์ JSON ได้" });
+          } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      const acPresets = [ {label: 'บ้าน Off-Peak', val: 2.6}, {label: 'ไฟบ้านปกติ', val: 4.5}, {label: 'บ้าน On-Peak', val: 5.8}, {label: 'AC สาธารณะ', val: 5.9} ];
 
       return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-[#0B0A1A] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-fuchsia-900/40 via-[#0B0A1A] to-cyan-900/30">
-          <AppAlertModal data={appAlert} onClose={() => setAppAlert(null)} />
-          <div className="bg-[#120F24]/60 backdrop-blur-3xl w-full max-w-md rounded-[32px] border border-white/10 p-6 space-y-6 shadow-[0_0_80px_-20px_rgba(236,72,153,0.3)]">
+          <AppAlertModal alertData={appAlert} onClose={() => setAppAlert(null)} />
+          
+          <div className="bg-[#120F24]/60 backdrop-blur-3xl w-full max-w-md rounded-[32px] border border-white/10 overflow-hidden relative p-6 space-y-6 shadow-[0_0_80px_-20px_rgba(236,72,153,0.3)]">
+            
+            {/* Header */}
             <div className="flex justify-between items-center border-b border-white/5 pb-4">
               <div>
-                <h1 className="text-2xl font-black flex items-center gap-2"><Icon name="zap" className="text-fuchsia-400 drop-shadow-[0_0_12px_rgba(236,72,153,0.8)]" /><span className="bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 via-fuchsia-400 to-pink-500">Geely EX2</span></h1>
+                <h1 className="text-2xl font-black flex items-center gap-2">
+                  <Icon name="zap" className="w-6 h-6 text-fuchsia-400 drop-shadow-[0_0_12px_rgba(236,72,153,0.8)]" />
+                  <span className="bg-clip-text text-transparent bg-gradient-to-r from-cyan-300 via-fuchsia-400 to-pink-500">Geely EX2</span>
+                </h1>
                 <p className="text-[10px] text-purple-200/60 uppercase font-bold tracking-wider">HyperCharge Tracker</p>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => setShowAuthModal(true)} className={`p-2.5 rounded-xl border relative ${systemDB.storageMode==='cloud' ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' : 'bg-white/5 border-white/10 text-cyan-300'}`}><Icon name="user" />{systemDB.storageMode==='cloud' && <span className="absolute top-1 right-1 w-2 h-2 bg-emerald-400 rounded-full animate-ping"></span>}</button>
-                <button onClick={() => setShowCalib(!showCalib)} className={`p-2.5 rounded-xl border ${showCalib ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-300' : 'bg-white/5 border-white/10 text-cyan-300'}`}><Icon name="settings" /></button>
-                <button onClick={() => { setShowHistory(true); setActiveItemId(null); }} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-cyan-300 relative"><Icon name="history" />{systemDB.history.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-fuchsia-500 rounded-full animate-pulse border border-[#120F24]"></span>}</button>
+                <button 
+                  onClick={() => setShowAuthModal(true)} 
+                  className={`p-2.5 rounded-xl border transition-all relative ${systemDB.storageMode === 'cloud' ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' : 'bg-white/5 border-white/10 text-cyan-300'}`}
+                  title="สถานะโปรไฟล์ / เข้าสู่ระบบ"
+                >
+                  <Icon name="user" />
+                  {systemDB.storageMode === 'cloud' && <span className="absolute top-1 right-1 w-2 h-2 bg-emerald-400 rounded-full animate-ping"></span>}
+                </button>
+                <button onClick={() => setShowCalib(!showCalib)} className={`p-2.5 rounded-xl border transition-all ${showCalib ? 'bg-fuchsia-500/20 border-fuchsia-500/50 text-fuchsia-300' : 'bg-white/5 border-white/10 text-cyan-300'}`} title="ตั้งค่าปรับแต่งวิศวกรรมไฟฟ้า">
+                  <Icon name="settings" />
+                </button>
+                <button onClick={() => { setShowHistory(true); setActiveItemId(null); }} className="p-2.5 bg-white/5 rounded-xl border border-white/10 text-cyan-300 relative">
+                  <Icon name="history" />
+                  {systemDB.history.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-fuchsia-500 rounded-full animate-pulse border border-[#120F24]"></span>}
+                </button>
               </div>
             </div>
 
+            {/* Calibration Accordion Panel */}
             {showCalib && (
               <div className="p-4 bg-gradient-to-b from-[#18152e] to-[#120F24] rounded-2xl border border-white/10 space-y-3">
-                <div className="flex justify-between items-center border-b border-white/5 pb-2"><span className="text-xs font-black text-fuchsia-400 uppercase flex items-center gap-1.5"><Icon name="settings" className="w-4 h-4" /> ปรับแก้แรงดันไฟ</span><button onClick={() => { setCalibVoltage(229); setCalibOBC(94); }} className="text-[10px] text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">คืนค่าโรงงาน</button></div>
-                <div><div className="flex justify-between text-xs text-gray-300 mb-1"><span>Voltage (AC)</span><span className="text-cyan-400 font-mono font-bold">{calibVoltage} V</span></div><StyledSlider min="200" max="240" value={calibVoltage} onChange={e=>setCalibVoltage(Number(e.target.value))} colorCls="text-cyan-500" /></div>
-                <div><div className="flex justify-between text-xs text-gray-300 mb-1"><span>OBC Efficiency</span><span className="text-fuchsia-400 font-mono font-bold">{calibOBC}%</span></div><StyledSlider min="75" max="98" value={calibOBC} onChange={e=>setCalibOBC(Number(e.target.value))} colorCls="text-fuchsia-500" /></div>
-                <div className="pt-3 border-t border-white/5 mt-3"><button onClick={handleRecalculateOldData} disabled={isSaving || !systemDB.history.length} className="w-full py-2 bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-xl text-[10px] font-bold uppercase flex justify-center gap-2 disabled:opacity-50"><Icon name="history" className="w-3.5 h-3.5" /> อัปเดตประวัติด้วยสูตรใหม่</button></div>
+                <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                  <span className="text-xs font-black text-fuchsia-400 uppercase tracking-wider flex items-center gap-1.5"><Icon name="settings" className="w-4 h-4" /> ปรับแก้แรงดันไฟและความแม่นยำ</span>
+                  <button onClick={() => { setCalibVoltage(229); setCalibOBC(94); }} className="text-[10px] text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">คืนค่าโรงงาน</button>
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs text-gray-300 mb-1"><span>แรงดันไฟฟ้า AC (Voltage)</span><span className="text-cyan-400 font-mono font-bold">{calibVoltage} V</span></div>
+                  <StyledSlider min="200" max="240" value={calibVoltage} onChange={(e) => setCalibVoltage(Number(e.target.value))} variant="cyan-sm" />
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs text-gray-300 mb-1"><span>ประสิทธิภาพตัวแปลงไฟ (OBC Efficiency)</span><span className="text-fuchsia-400 font-mono font-bold">{calibOBC}%</span></div>
+                  <StyledSlider min="75" max="98" value={calibOBC} onChange={(e) => setCalibOBC(Number(e.target.value))} variant="fuchsia-sm" />
+                </div>
+                
+                <div className="pt-3 border-t border-white/5 mt-3">
+                  <button onClick={handleRecalculateOldData} disabled={isSaving || systemDB.history.length === 0} className="w-full py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-[10px] font-bold uppercase transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                     <Icon name="history" className="w-3.5 h-3.5" /> อัปเดตประวัติด้วยสูตรใหม่
+                  </button>
+                  <p className="text-[8px] text-gray-400 text-center mt-1.5 leading-tight">คำนวณราคาชาร์จเก่าใหม่ทั้งหมด ด้วยสมการชดเชยการสูญเสียพลังงาน (Vampire Drain & Heat Loss)</p>
+                </div>
               </div>
             )}
 
+            {/* Main Visual Arc & Time */}
             <div className="flex flex-col items-center">
-              <div className="relative w-full flex justify-center mb-2"><GaugeCanvas currentSoC={currentSoC} targetSoC={targetSoC} chargerType={chargerType} /><div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-center z-10"><span className="text-[38px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-pink-200">{targetSoC}%</span></div></div>
-              {calcDetails.error ? <div className="text-lg font-bold text-rose-400 my-2 bg-rose-500/10 px-4 py-1.5 rounded-xl border border-rose-500/20">{calcDetails.error}</div> : <div className="text-[52px] leading-none font-black text-white font-mono tracking-tight my-1 drop-shadow-lg">{calcDetails.hours > 0 && <span>{calcDetails.hours}<span className="text-lg text-fuchsia-300 font-normal ml-1 mr-2">ชม.</span></span>}<span>{calcDetails.minutes}<span className="text-lg text-fuchsia-300 font-normal ml-1">นาที</span></span></div>}
-              <div className="w-full bg-gradient-to-r from-fuchsia-900/20 to-purple-900/20 rounded-2xl p-3 border border-fuchsia-500/20 flex items-center gap-3"><div className="p-2 bg-fuchsia-500/20 rounded-xl border border-fuchsia-500/30"><Icon name="zap" className="w-4 h-4 text-fuchsia-300" /></div><div className="text-xs"><div className="text-purple-200">กำลังไฟเข้า: <span className="font-black text-cyan-400 text-sm">{calcDetails.actualPower.toFixed(1)} kW</span></div><div className="text-fuchsia-400/80 text-[10px] uppercase">{calcDetails.bottleneck}</div></div></div>
-            </div>
+              <div className="relative w-full flex justify-center mb-2">
+                <GaugeCanvas currentSoC={currentSoC} targetSoC={targetSoC} chargerType={chargerType} />
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-center z-10">
+                  <span className="text-[38px] leading-none font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-pink-200">{targetSoC}%</span>
+                  <span className="block text-[9px] font-bold text-fuchsia-400 uppercase tracking-widest bg-fuchsia-500/10 px-2.5 py-0.5 rounded-full border border-fuchsia-500/20 mt-1">Target</span>
+                </div>
+              </div>
 
-            <div className="space-y-4">
-              <div><div className="flex justify-between items-center text-xs font-bold text-purple-200 mb-2 uppercase"><span>แบตเตอรี่ปัจจุบัน</span><span className="text-cyan-400 font-black bg-cyan-500/10 px-2 rounded border border-cyan-500/20">{currentSoC}%</span></div><StyledSlider min="0" max="100" value={currentSoC} onChange={e=>setCurrentSoC(Number(e.target.value))} colorCls="text-cyan-400" /></div>
-              <div><div className="flex justify-between items-center text-xs font-bold text-purple-200 mb-2 uppercase"><span>เป้าหมายการชาร์จ</span><span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2 rounded border border-fuchsia-500/20">{targetSoC}%</span></div><StyledSlider min="0" max="100" value={targetSoC} onChange={e=>setTargetSoC(Number(e.target.value))} colorCls="text-fuchsia-400" /></div>
-            </div>
+              <div className="text-purple-300/80 font-semibold mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest bg-white/5 px-3 py-1 rounded-full border border-white/5">
+                <Icon name="clock" className="w-3.5 h-3.5 text-cyan-400" /> เวลาชาร์จโดยประมาณ
+              </div>
 
-            <div className="space-y-3">
-              <div className="flex bg-black/40 p-1 rounded-xl border border-white/5"><button onClick={() => { setChargerType('AC'); setPricePerUnit(4.5); }} className={`flex-1 py-2.5 text-xs font-bold rounded-lg ${chargerType==='AC'?'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md':'text-purple-400/60'}`}>AC (ธรรมดา)</button><button onClick={() => { setChargerType('DC'); setPricePerUnit(5.9); }} className={`flex-1 py-2.5 text-xs font-bold rounded-lg ${chargerType==='DC'?'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md':'text-purple-400/60'}`}>DC (ชาร์จเร็ว)</button></div>
-              {chargerType === 'AC' ? (
-                <><div className="flex gap-2"><button onClick={()=>setAcInputMode('kW')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-lg border ${acInputMode==='kW'?'bg-white/10 border-white/20 text-white':'border-white/5 text-purple-400/50'}`}>ตู้ชาร์จ (kW)</button><button onClick={()=>setAcInputMode('A')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-lg border ${acInputMode==='A'?'bg-white/10 border-white/20 text-white':'border-white/5 text-purple-400/50'}`}>สายพกพา (Amps)</button></div>
-                {acInputMode === 'A' ? (
-                  <div className="space-y-2"><div className="flex justify-between items-center text-xs font-bold text-purple-200"><span>กระแสชาร์จ</span><span className="text-fuchsia-400 font-mono font-black">{acAmps}A</span></div><StyledSlider min="6" max="32" value={acAmps} onChange={e=>setAcAmps(Number(e.target.value))} colorCls="text-fuchsia-500" /></div>
-                ) : (
-                  <div className="space-y-2"><div className="flex justify-between items-center text-xs font-bold text-purple-200"><span>กำลังไฟชาร์จ</span><span className="text-cyan-400 font-mono font-black">{acPower.toFixed(1)} kW</span></div><StyledSlider min="1.0" max="22.0" step="0.1" value={acPower} onChange={e=>setAcPower(Number(e.target.value))} colorCls="text-cyan-500" /></div>
-                )}</>
+              {calcDetails.error ? (
+                <div className="text-lg font-bold text-rose-400 my-2 bg-rose-500/10 px-4 py-1.5 rounded-xl border border-rose-500/20">{calcDetails.error}</div>
               ) : (
-                <div className="space-y-3"><StyledSlider min="10" max="360" step="5" value={dcPower} onChange={e=>setDcPower(Number(e.target.value))} colorCls="text-cyan-500" /></div>
+                <div className="text-[52px] leading-none font-black text-white font-mono tracking-tight my-1 drop-shadow-lg">
+                  {calcDetails.hours > 0 && <span>{calcDetails.hours}<span className="text-lg text-fuchsia-300 font-normal ml-1 mr-2">ชม.</span></span>}
+                  <span>{calcDetails.minutes}<span className="text-lg text-fuchsia-300 font-normal ml-1">นาที</span></span>
+                </div>
+              )}
+
+              <div className="w-full bg-gradient-to-r from-fuchsia-900/20 to-purple-900/20 rounded-2xl p-3 border border-fuchsia-500/20 flex items-center gap-3">
+                <div className="p-2 bg-fuchsia-500/20 rounded-xl border border-fuchsia-500/30"><Icon name="zap" className="w-4 h-4 text-fuchsia-300" /></div>
+                <div className="text-xs">
+                  <div className="text-purple-200">กำลังไฟเข้า: <span className="font-black text-cyan-400 text-sm">{calcDetails.actualPower.toFixed(1)} kW</span></div>
+                  <div className="text-fuchsia-400/80 text-[10px] uppercase">{calcDetails.bottleneck}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* SoC Sliders */}
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between items-center text-xs font-bold text-purple-200 mb-2 uppercase">
+                  <span>แบตเตอรี่ปัจจุบัน</span>
+                  <span className="text-cyan-400 font-black bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">{currentSoC}%</span>
+                </div>
+                <StyledSlider min="0" max="100" value={currentSoC} onChange={(e) => setCurrentSoC(Number(e.target.value))} variant="cyan-lg" />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center text-xs font-bold text-purple-200 mb-2 uppercase">
+                  <span>เป้าหมายการชาร์จ</span>
+                  <span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2 py-0.5 rounded border border-fuchsia-500/20">{targetSoC}%</span>
+                </div>
+                <StyledSlider min="0" max="100" value={targetSoC} onChange={(e) => setTargetSoC(Number(e.target.value))} variant="fuchsia-lg" />
+              </div>
+            </div>
+
+            {/* Charger Type Toggle & Options */}
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-purple-200 uppercase tracking-wider">ประเภทการชาร์จ</label>
+              <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                <button onClick={() => { setChargerType('AC'); setPricePerUnit(4.5); }} className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${chargerType === 'AC' ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md' : 'text-purple-400/60'}`}>AC (ธรรมดา)</button>
+                <button onClick={() => { setChargerType('DC'); setPricePerUnit(5.9); }} className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${chargerType === 'DC' ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md' : 'text-purple-400/60'}`}>DC (ชาร์จเร็ว)</button>
+              </div>
+
+              {chargerType === 'AC' ? (
+                <>
+                  <div className="flex gap-2">
+                    <button onClick={() => setAcInputMode('kW')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-lg border ${acInputMode === 'kW' ? 'bg-white/10 border-white/20 text-white' : 'border-white/5 text-purple-400/50'}`}>ตู้ชาร์จ (kW)</button>
+                    <button onClick={() => setAcInputMode('A')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-lg border ${acInputMode === 'A' ? 'bg-white/10 border-white/20 text-white' : 'border-white/5 text-purple-400/50'}`}>สายพกพา (Amps)</button>
+                  </div>
+                  
+                  {acInputMode === 'A' ? (
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-xs font-bold text-purple-200">
+                        <span>กระแสชาร์จสายพกพา</span>
+                        <span className="text-fuchsia-400 font-mono font-black">{acAmps}A <span className="text-[9px] font-normal text-fuchsia-300/60">(ดึงจริง {(acAmps * 0.94).toFixed(1)}A)</span></span>
+                      </div>
+                      <div className="flex gap-1.5">
+                        {[8, 10, 13, 16, 32].map(amp => (
+                          <button key={amp} onClick={() => setAcAmps(amp)} className={`flex-1 py-2 text-xs font-black rounded-lg border transition-all ${acAmps === amp ? 'bg-fuchsia-500/20 border-fuchsia-500 text-fuchsia-300 shadow-md' : 'bg-black/20 border-white/5 text-purple-400/60'}`}>{amp}A</button>
+                        ))}
+                      </div>
+                      <StyledSlider min="6" max="32" value={acAmps} onChange={(e) => setAcAmps(Number(e.target.value))} variant="fuchsia-sm" />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-xs font-bold text-purple-200">
+                        <span>กำลังไฟชาร์จ AC</span>
+                        <span className="text-cyan-400 font-mono font-black">{acPower.toFixed(1)} kW</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[7.0, 11.0, 22.0].map(kw => (
+                          <button key={kw} onClick={() => setAcPower(kw)} className={`py-2 text-xs font-black rounded-lg border transition-all ${acPower === kw ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300' : 'bg-black/20 border-white/5 text-purple-400/60'}`}>{kw.toFixed(1)} kW</button>
+                        ))}
+                      </div>
+                      <StyledSlider min="1.0" max="22.0" step="0.1" value={acPower} onChange={(e) => setAcPower(Number(e.target.value))} variant="cyan-sm" />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <span className="block text-[10px] text-gray-400 font-bold uppercase mb-1">Standard DC Fast Charging (ความเร็วปกติ)</span>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => setDcPower(25)} className={`py-2 text-xs font-bold rounded-lg border ${dcPower === 25 ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300' : 'bg-black/20 border-white/5 text-purple-400/60'}`}>25 kW <span className="block text-[8px] font-normal text-gray-500">(โชว์รูม/ดีลเลอร์)</span></button>
+                      <button onClick={() => setDcPower(50)} className={`py-2 text-xs font-bold rounded-lg border ${dcPower === 50 ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300' : 'bg-black/20 border-white/5 text-purple-400/60'}`}>50 kW <span className="block text-[8px] font-normal text-gray-500">(ตู้ชาร์จด่วนทั่วไป)</span></button>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-fuchsia-400 font-bold uppercase mb-1">Ultra-Fast DC Hypercharging (ความเร็วสูงพิเศษ)</span>
+                    <button onClick={() => setDcPower(120)} className={`w-full py-2.5 text-xs font-bold rounded-lg border ${dcPower >= 120 ? 'bg-gradient-to-r from-fuchsia-500/20 to-purple-500/20 border-fuchsia-500 text-fuchsia-300' : 'bg-black/20 border-white/5 text-purple-400/60'}`}>
+                      120 kW - 720 kW <span className="block text-[8px] font-normal text-fuchsia-300/70 mt-0.5">(ปั๊ม ปตท./PEA *รถรับไฟจริงสูงสุด 70 kW)</span>
+                    </button>
+                  </div>
+                  <StyledSlider min="10" max="360" step="5" value={dcPower} onChange={(e) => setDcPower(Number(e.target.value))} variant="cyan-sm" />
+                </div>
               )}
             </div>
 
-            <div className="bg-[#0f172a]/90 p-5 rounded-2xl border border-white/10 text-center">
-              <span className="text-xs font-bold text-emerald-400 uppercase block mb-1">ประมาณการค่าไฟ</span>
-              <span className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-teal-200 to-emerald-400 font-mono block mb-4">฿{calcDetails.cost.toFixed(2)}</span>
-              <input type="number" step="0.01" value={pricePerUnit} onChange={e=>setPricePerUnit(Number(e.target.value))} className="w-28 mx-auto bg-[#050B14] border border-white/10 text-emerald-300 rounded-xl px-3 py-2 text-center font-mono text-lg font-black block mb-3" />
-              <div className="grid grid-cols-4 gap-1 mb-3">{(chargerType==='AC'?acPresets:dcPresets).map(p=><button key={p.l} onClick={()=>setPricePerUnit(p.v)} className={`py-1.5 px-0.5 text-[7px] font-bold rounded border ${pricePerUnit===p.v?'bg-emerald-500 text-black':'bg-black/40 border-white/5 text-emerald-400/70'}`}><span className="block truncate">{p.l}</span><span className="block font-black">฿{p.v}</span></button>)}</div>
-              <button onClick={() => systemDB.addRecord({ timestamp: Date.now(), cost: calcDetails.cost, startSoC: currentSoC, targetSoC, chargerType, power: chargerType==='AC'?(acInputMode==='A'?`${acAmps}A`:`${acPower}kW`):`${dcPower}kW`, pricePerUnit })} disabled={calcDetails.error || !systemDB.user} className="w-full py-2.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold uppercase flex justify-center gap-2"><Icon name="save" className="w-4 h-4" /> บันทึกยอดชาร์จลงประวัติ</button>
+            {/* Scheduler */}
+            <div className="bg-gradient-to-br from-fuchsia-900/30 to-violet-900/30 p-4 rounded-2xl border border-fuchsia-500/20 space-y-3">
+              <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                <button onClick={() => setScheduleMode('FINISH_BY')} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-lg ${scheduleMode === 'FINISH_BY' ? 'bg-white/10 text-white' : 'text-purple-400/50'}`}>ตั้งเวลาใช้รถ</button>
+                <button onClick={() => { setScheduleMode('START_AT'); setUserStartTime(getCurrentTimeStr()); }} className={`flex-1 py-1.5 text-[10px] font-bold uppercase rounded-lg ${scheduleMode === 'START_AT' ? 'bg-white/10 text-white' : 'text-purple-400/50'}`}>เริ่มชาร์จเดี๋ยวนี้</button>
+              </div>
+              
+              {schedule && (
+                <div className="space-y-2">
+                  <div className="bg-black/20 p-3 rounded-xl border border-white/5">
+                    <label className="block text-[10px] font-bold text-fuchsia-200/70 uppercase mb-1">{schedule.inputLabel}</label>
+                    <input type="time" value={schedule.inputValue} onChange={(e) => schedule.setInputValue(e.target.value)} className="w-full bg-[#050B14] border border-white/10 text-white rounded-lg px-3 py-1.5 font-mono text-lg font-bold" />
+                  </div>
+                  <div className="bg-gradient-to-br from-indigo-900/40 to-blue-900/40 p-3 rounded-xl border border-indigo-500/30 text-center">
+                    <label className="block text-[10px] font-bold text-indigo-200/70 uppercase mb-1">{schedule.outputLabel}</label>
+                    <div className="text-3xl font-black font-mono text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-pink-400">{schedule.outputTime}</div>
+                    {schedule.dayOffset && <div className="text-[10px] font-bold text-pink-400 mt-1">{schedule.dayOffset}</div>}
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* Cost & Save */}
+            <div className="bg-[#0f172a]/90 p-5 rounded-2xl border border-white/10 space-y-4">
+              <div className="text-center">
+                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider block mb-1">ประมาณการค่าไฟ</span>
+                <span className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white via-teal-200 to-emerald-400 font-mono">฿{calcDetails.cost.toFixed(2)}</span>
+              </div>
+
+              {chargerType === 'DC' && (
+                <div className="bg-black/20 p-2 rounded-xl border border-white/5 space-y-1">
+                  <span className="block text-[10px] font-bold text-cyan-400 text-center uppercase">ช่วงเวลาใช้บริการตู้ชาร์จ (TIME OF USE - TOU)</span>
+                  <div className="flex p-0.5 bg-[#120F24] rounded-lg">
+                    <button onClick={() => setPricePerUnit(8.2)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[7.9, 8.2, 8.4, 9.4].includes(pricePerUnit) ? 'bg-fuchsia-500 text-black' : 'text-gray-400'}`}>☀️ On-Peak</button>
+                    <button onClick={() => setPricePerUnit(5.9)} className={`flex-1 py-1 text-[10px] font-bold rounded ${[4.5, 5.5, 5.8, 5.9, 6.0, 6.6, 6.9, 7.1, 8.1].includes(pricePerUnit) ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>🌙 Off-Peak / Promo</button>
+                  </div>
+                  <p className="text-[8px] text-gray-400 text-center italic leading-tight pt-0.5">🌙 Off-Peak: จันทร์-ศุกร์ 22:00 - 09:00 น. & เสาร์-อาทิตย์/วันหยุด</p>
+                </div>
+              )}
+
+              <div className="text-center">
+                <label className="block text-xs font-bold text-emerald-400/80 mb-1 uppercase">ค่าไฟ / หน่วย (บาท)</label>
+                <input type="number" step="0.01" value={pricePerUnit} onChange={(e) => setPricePerUnit(Number(e.target.value))} className="w-28 mx-auto bg-[#050B14] border border-white/10 text-emerald-300 rounded-xl px-3 py-2 text-center font-mono text-lg font-black block mb-3" />
+
+                {chargerType === 'AC' ? (
+                  <div className="grid grid-cols-4 gap-1 mb-3">
+                    {acPresets.map(p => (
+                      <button key={p.label} onClick={() => setPricePerUnit(p.val)} className={`py-1.5 px-1 text-[8px] font-bold rounded border ${pricePerUnit === p.val ? 'bg-emerald-500 text-black' : 'bg-black/40 border-white/5 text-emerald-400/70'}`}>{p.label}</button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-1 mb-3">
+                    {(() => {
+                      const isOnPeak = [7.9, 8.2, 8.4, 9.4].includes(pricePerUnit);
+                      const dcPresets = isOnPeak 
+                        ? [ {l: 'ตู้ 40-180kW', v: 7.9}, {l: 'ตู้ 180-200', v: 8.2}, {l: 'EV HUB/Fast', v: 8.4}, {l: 'Ultra 240+', v: 9.4} ]
+                        : [ {l: 'PEA (ถูกสุด)', v: 4.5}, {l: 'PEA / PluZ', v: 5.5}, {l: 'ReverCharger', v: 5.8}, {l: 'PluZ / Easy', v: 5.9} ];
+                      return dcPresets.map(p => (
+                        <button key={p.l} onClick={() => setPricePerUnit(p.v)} className={`py-1.5 px-0.5 text-[7px] font-bold rounded border ${pricePerUnit === p.v ? 'bg-emerald-500 text-black' : 'bg-black/40 border-white/5 text-emerald-400/70'}`}>
+                          <span className="block truncate">{p.l}</span>
+                          <span className="block font-black">฿{p.v}</span>
+                        </button>
+                      ));
+                    })()}
+                  </div>
+                )}
+
+                <button onClick={handleSaveSession} disabled={isSaving || calcDetails.error || !systemDB.user} className="w-full py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2 transition-all disabled:opacity-50">
+                  <Icon name="save" className="w-4 h-4" /> {isSaving ? 'Saving...' : 'บันทึกยอดชาร์จลงประวัติ'}
+                </button>
+              </div>
+            </div>
+
           </div>
 
-          {showHistory && (
+          {/* Auth Modal Overlay */}
+          {showAuthModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-              <div className="bg-[#120F24] border border-white/10 w-full max-w-md h-[85vh] flex flex-col rounded-[32px] overflow-hidden shadow-2xl">
-                <div className="p-4 bg-white/5 border-b border-white/5 flex justify-between items-center"><div className="flex items-center gap-2 text-cyan-400 font-bold uppercase text-xs"><Icon name="history" /> ประวัติการชาร์จ</div><button onClick={() => setShowHistory(false)} className="text-white/50 text-xl font-bold">✕</button></div>
-                <div className="px-4 py-2.5 bg-black/20 border-b border-white/5 flex gap-2">
-                  <button onClick={() => { const a = document.createElement('a'); a.href = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(systemDB.history)); a.download = `backup_${Date.now()}.json`; a.click(); }} className="flex-1 py-1.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 rounded-lg text-[10px] font-bold uppercase flex justify-center gap-1.5"><Icon name="upload" className="w-3.5 h-3.5" /> สำรองข้อมูล (Export)</button>
-                  <label className="flex-1 py-1.5 bg-purple-500/10 text-purple-300 border border-purple-500/20 rounded-lg text-[10px] font-bold uppercase flex justify-center gap-1.5 cursor-pointer m-0"><Icon name="download" className="w-3.5 h-3.5" /> นำเข้าข้อมูล (Import)<input type="file" onChange={e=>{ const f = e.target.files?.[0]; if(f){ const r = new FileReader(); r.onload=ev=>systemDB.importRecords(JSON.parse(ev.target.result)).then(c=>setAppAlert({title:"สำเร็จ",message:`นำเข้า ${c} รายการ`})); r.readAsText(f); } }} className="hidden" /></label>
+              <div className="bg-[#120F24] border border-white/10 w-full max-w-sm rounded-[28px] overflow-hidden p-6 text-center space-y-4 shadow-2xl">
+                <div className="flex justify-between items-center border-b border-white/5 pb-3">
+                  <h3 className="text-sm font-bold text-cyan-300 flex items-center gap-2 uppercase"><Icon name="user" /> สถานะบัญชีผู้ใช้</h3>
+                  <button onClick={() => setShowAuthModal(false)} className="text-white/50 hover:text-white text-lg font-bold">✕</button>
                 </div>
-                <div className="px-4 py-3 bg-white/5 border-b border-white/5 space-y-3">
-                  <div className="flex bg-black/40 p-0.5 rounded-xl text-xs font-bold">
-                    <button onClick={() => setHistoryTab('records')} className={`flex-1 py-2 rounded-lg flex justify-center gap-1.5 ${historyTab==='records'?'bg-cyan-500 text-black':'text-gray-400'}`}><Icon name="list" className="w-3.5 h-3.5" /> {groupedHistory.find(g => g.key === selectedMonthFilter)?.label || 'รายการชาร์จ'}</button>
-                    <button onClick={() => setHistoryTab('summary')} className={`flex-1 py-2 rounded-lg flex justify-center gap-1.5 ${historyTab==='summary'?'bg-cyan-500 text-black':'text-gray-400'}`}><Icon name="chart" className="w-3.5 h-3.5" /> สรุปรายเดือน</button>
-                  </div>
-                  {historyTab === 'records' && (
-                    <div className="flex bg-black/30 p-1.5 rounded-xl border border-white/5 text-xs"><select value={selectedMonthFilter} onChange={e=>setSelectedMonthFilter(e.target.value)} className="w-full bg-[#050B14] border border-white/10 text-cyan-300 rounded-lg px-3 py-1.5 text-xs font-bold font-mono outline-none text-center">{groupedHistory.map(g => <option key={g.key} value={g.key}>{g.label} ({g.items.length} รายการ)</option>)}</select></div>
-                  )}
-                </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-3 history-scroll">
-                  {historyTab === 'records' ? (
-                    <div>
-                      <div className="flex justify-between text-xs font-bold text-cyan-300 uppercase border-b border-white/10 pb-2 mb-3"><span>{groupedHistory.find(g=>g.key===selectedMonthFilter)?.label||'ไม่มีข้อมูล'}</span><span className="font-mono text-emerald-400">฿{filteredTotalCost.toFixed(2)}</span></div>
-                      {filteredRecords.map(item => <RecordItemCard key={item.id} item={item} activeItemId={activeItemId} setActiveItemId={setActiveItemId} editingId={editingId} setEditingId={setEditingId} editCost={editCost} setEditCost={setEditCost} editDateTime={editDateTime} setEditDateTime={setEditDateTime} systemDB={systemDB} onDeleteRequest={setItemToDelete} />)}
+
+                {systemDB.storageMode === 'cloud' && systemDB.user && !systemDB.user.isAnonymous ? (
+                  <div className="space-y-4">
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl text-center">
+                      <span className="text-[10px] text-emerald-400 font-bold uppercase block mb-1">ซิงค์ข้อมูลบน Cloud สำเร็จ</span>
+                      <p className="text-xs font-mono text-white font-bold break-all">{systemDB.user.email}</p>
                     </div>
-                  ) : (
-                    groupedHistory.map(group => (
-                      <div key={group.key} className="bg-black/40 border border-white/5 rounded-2xl overflow-hidden">
-                        <div onClick={()=>setExpandedMonthKey(expandedMonthKey===group.key?null:group.key)} className="p-4 flex justify-between items-center cursor-pointer hover:bg-white/5"><div><span className="text-[9px] text-cyan-400 font-bold uppercase block">สรุปรายเดือน</span><h3 className="text-sm font-black">{group.label}</h3></div><div className="flex items-center gap-2"><span className="text-base font-black font-mono text-emerald-400">฿{group.total.toFixed(2)}</span><Icon name="chevron" className={`w-4 h-4 text-gray-400 transition-transform ${expandedMonthKey===group.key?'rotate-180':''}`} /></div></div>
-                        {expandedMonthKey === group.key && <div className="p-3 bg-[#0a0815]/60 space-y-2">{group.items.map(item => <RecordItemCard key={item.id} item={item} activeItemId={activeItemId} setActiveItemId={setActiveItemId} editingId={editingId} setEditingId={setEditingId} editCost={editCost} setEditCost={setEditCost} editDateTime={editDateTime} setEditDateTime={setEditDateTime} systemDB={systemDB} onDeleteRequest={setItemToDelete} />)}</div>}
-                      </div>
-                    ))
-                  )}
-                </div>
+                    <button onClick={async () => { await systemDB.handleSignOut(); setShowAuthModal(false); }} className="w-full py-2.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-bold uppercase rounded-xl transition-all">
+                      ออกจากระบบ (Sign Out)
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl text-left">
+                      <span className="text-[10px] text-amber-400 font-bold uppercase block mb-1">โหมดชั่วคราว (Local Storage)</span>
+                      <p className="text-[11px] text-gray-300 leading-relaxed">ขณะนี้ประวัติการชาร์จบันทึกอยู่ในเครื่อง ล็อกอินด้วย Google เพื่อกู้คืนและซิงค์ประวัติเดิมข้ามอุปกรณ์ได้ทันที</p>
+                    </div>
+                    <button 
+                      onClick={async () => { await systemDB.handleGoogleSignIn(); setShowAuthModal(false); }} 
+                      disabled={systemDB.isAuthLoading}
+                      className="w-full py-3 bg-white text-black hover:bg-gray-100 rounded-xl text-xs font-bold flex items-center justify-center gap-2.5 transition-all shadow-lg"
+                    >
+                      <GoogleIcon className="w-4 h-4" />
+                      {systemDB.isAuthLoading ? 'กำลังเชื่อมต่อ...' : 'เข้าสู่ระบบด้วย GOOGLE'}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          <ConfirmDeleteModal item={itemToDelete} onConfirm={() => { systemDB.deleteRecord(itemToDelete.id, itemToDelete); setActiveItemId(null); setEditingId(null); setItemToDelete(null); }} onCancel={() => setItemToDelete(null)} />
+          {/* History Overlay Modal */}
+          {showHistory && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+              <div className="bg-[#120F24] border border-white/10 w-full max-w-md h-[85vh] flex flex-col rounded-[32px] overflow-hidden shadow-2xl">
+                
+                <div className="p-4 bg-white/5 border-b border-white/5 flex justify-between items-center">
+                  <div className="flex items-center gap-2 text-cyan-400 font-bold uppercase text-xs"><Icon name="history" /> ประวัติการชาร์จ</div>
+                  <button onClick={() => setShowHistory(false)} className="text-white/50 hover:text-white text-xl font-bold">✕</button>
+                </div>
+
+                {/* Global Backup Export & Import Toolbar (Moved right under Title) */}
+                <div className="px-4 py-2.5 bg-black/20 border-b border-white/5 flex gap-2">
+                  <button onClick={handleExportBackup} className="flex-1 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/20 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1.5 transition-all">
+                    <Icon name="upload" className="w-3.5 h-3.5" /> สำรองข้อมูล (Export)
+                  </button>
+                  <label className="flex-1 py-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 rounded-lg text-[10px] font-bold uppercase flex items-center justify-center gap-1.5 transition-all cursor-pointer m-0">
+                    <Icon name="download" className="w-3.5 h-3.5" /> นำเข้าข้อมูล (Import)
+                    <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" />
+                  </label>
+                </div>
+
+                {/* Master Accumulated Sum Header */}
+                <div className="p-5 bg-gradient-to-br from-emerald-900/20 to-teal-900/20 border-b border-white/5 text-center">
+                  <div className="text-[10px] text-emerald-400/70 font-bold uppercase mb-1">
+                    {historyTab === 'records' 
+                      ? `ยอดใช้จ่ายเดือน ${groupedHistory.find(g => g.key === selectedMonthFilter)?.label || 'ปัจจุบัน'}` 
+                      : 'ยอดใช้จ่ายสะสมทั้งหมด'
+                    }
+                  </div>
+                  <div className="text-3xl font-black font-mono text-transparent bg-clip-text bg-gradient-to-b from-white via-emerald-200 to-emerald-400 drop-shadow-md">
+                    ฿{historyTab === 'records' 
+                      ? filteredTotalCost.toFixed(2)
+                      : systemDB.history.reduce((sum, item) => sum + (Number(item.cost)||0), 0).toFixed(2)
+                    }
+                  </div>
+                </div>
+
+                {/* Tab Switcher & Month Filter */}
+                <div className="px-4 py-3 bg-white/5 border-b border-white/5 space-y-3">
+                  <div className="flex bg-black/40 p-0.5 rounded-xl text-xs font-bold">
+                    <button onClick={() => { setHistoryTab('records'); setActiveItemId(null); }} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 ${historyTab === 'records' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>
+                      <Icon name="list" className="w-3.5 h-3.5" /> {groupedHistory.find(g => g.key === selectedMonthFilter)?.label || 'เดือนปัจจุบัน'}
+                    </button>
+                    <button onClick={() => { setHistoryTab('summary'); setActiveItemId(null); }} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 ${historyTab === 'summary' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>
+                      <Icon name="chart" className="w-3.5 h-3.5" /> สรุปรายเดือน
+                    </button>
+                  </div>
+
+                  {/* Month Filter Selector in Records Tab */}
+                  {historyTab === 'records' && (
+                    <div className="flex bg-black/30 p-1.5 rounded-xl border border-white/5 text-xs">
+                      <select 
+                        value={selectedMonthFilter} 
+                        onChange={(e) => setSelectedMonthFilter(e.target.value)}
+                        className="w-full bg-[#050B14] border border-white/10 text-cyan-300 rounded-lg px-3 py-1.5 text-xs font-bold font-mono outline-none text-center"
+                      >
+                        {groupedHistory.map(g => (
+                          <option key={g.key} value={g.key}>{g.label} ({g.items.length} รายการ)</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Scrollable Feed List */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3 history-scroll">
+                  {historyTab === 'records' ? (
+                    <div>
+                      <div className="flex justify-between text-xs font-bold text-cyan-300 uppercase border-b border-white/10 pb-2 mb-3">
+                        <span>
+                          {groupedHistory.find(g => g.key === selectedMonthFilter)?.label || 'ไม่มีข้อมูลเดือนนี้'}
+                        </span>
+                        <span className="font-mono text-emerald-400">฿{filteredTotalCost.toFixed(2)}</span>
+                      </div>
+                      {filteredRecords.length === 0 ? (
+                        <div className="text-center text-white/30 py-12 text-xs">ไม่มีรายการชาร์จในตัวกรองนี้</div>
+                      ) : (
+                        filteredRecords.map(item => (
+                          <RecordItemCard 
+                            key={item.id} 
+                            item={item} 
+                            activeItemId={activeItemId} 
+                            setActiveItemId={setActiveItemId} 
+                            editingId={editingId} 
+                            setEditingId={setEditingId} 
+                            editCost={editCost} 
+                            setEditCost={setEditCost} 
+                            editDateTime={editDateTime} 
+                            setEditDateTime={setEditDateTime} 
+                            systemDB={systemDB}
+                            onDeleteRequest={setItemToDelete}
+                          />
+                        ))
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {groupedHistory.map(group => {
+                        const count = group.items.length;
+                        const avg = count > 0 ? group.total / count : 0;
+                        const isExpanded = expandedMonthKey === group.key;
+                        return (
+                          <div key={group.key} className="bg-black/40 border border-white/5 rounded-2xl overflow-hidden">
+                            <div onClick={() => setExpandedMonthKey(isExpanded ? null : group.key)} className="p-4 flex justify-between items-center cursor-pointer hover:bg-white/5">
+                              <div>
+                                <span className="text-[9px] text-cyan-400 font-bold uppercase block">สรุปรายเดือน</span>
+                                <h3 className="text-sm font-black">{group.label}</h3>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-base font-black font-mono text-emerald-400">฿{group.total.toFixed(2)}</span>
+                                <Icon name="chevron" className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                              </div>
+                            </div>
+                            <div className="p-3 bg-[#17142e]/30 grid grid-cols-2 gap-2 text-center text-xs border-t border-white/5">
+                              <div className="bg-white/5 p-2 rounded-xl">
+                                <span className="block text-[8px] text-white/40 uppercase">จำนวนครั้ง</span>
+                                <span className="font-bold font-mono">{count} ครั้ง</span>
+                              </div>
+                              <div className="bg-white/5 p-2 rounded-xl">
+                                <span className="block text-[8px] text-white/40 uppercase">เฉลี่ยต่อครั้ง</span>
+                                <span className="font-bold font-mono text-amber-300">฿{avg.toFixed(2)}</span>
+                              </div>
+                            </div>
+                            {isExpanded && (
+                              <div className="p-3 bg-[#0a0815]/60 space-y-2">
+                                <h4 className="text-[10px] text-cyan-400 font-bold uppercase mb-2">รายการชาร์จทั้งหมด (คลิกเพื่อแก้ไข/ลบ)</h4>
+                                {group.items.map(item => (
+                                  <RecordItemCard 
+                                    key={item.id} 
+                                    item={item} 
+                                    activeItemId={activeItemId} 
+                                    setActiveItemId={setActiveItemId} 
+                                    editingId={editingId} 
+                                    setEditingId={setEditingId} 
+                                    editCost={editCost} 
+                                    setEditCost={setEditCost} 
+                                    editDateTime={editDateTime} 
+                                    setEditDateTime={setEditDateTime} 
+                                    systemDB={systemDB}
+                                    onDeleteRequest={setItemToDelete}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          <ConfirmDeleteModal 
+            item={itemToDelete} 
+            onConfirm={async () => {
+              if (itemToDelete) {
+                const success = await systemDB.deleteRecord(String(itemToDelete.id), itemToDelete);
+                if (success) {
+                  setActiveItemId(null);
+                  setEditingId(null);
+                  setItemToDelete(null);
+                }
+              }
+            }} 
+            onCancel={() => setItemToDelete(null)} 
+          />
+
         </div>
       );
     }
+
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
+
   <script type="module">
-    try { const compiled = Babel.transform(document.getElementById('jsx-source').textContent, { presets: [['react', { "runtime": "classic" }]], sourceType: "module" }).code; const script = document.createElement('script'); script.type = 'module'; script.text = compiled; document.body.appendChild(script); } catch (e) { console.error(e); }
+    try {
+      const source = document.getElementById('jsx-source').textContent;
+      const compiled = Babel.transform(source, { presets: [['react', { "runtime": "classic" }]], sourceType: "module" }).code;
+      const script = document.createElement('script'); script.type = 'module'; script.text = compiled;
+      document.body.appendChild(script);
+    } catch (e) { console.error("Babel compilation error:", e); }
   </script>
 </body>
 </html>
