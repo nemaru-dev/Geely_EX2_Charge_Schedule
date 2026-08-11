@@ -956,11 +956,11 @@
                 </div>
                 <div>
                   <div className="flex justify-between text-xs text-gray-300 mb-1"><span>แรงดันไฟฟ้า AC (Voltage)</span><span className="text-cyan-400 font-mono font-bold">{calibVoltage} V</span></div>
-                  <StyledSlider min="200" max="240" value={calibVoltage} onChange={(e) => setCalibVoltage(Number(e.target.value))} variant="cyan-sm" />
+                  <input type="range" min="200" max="240" step="1" value={calibVoltage} onChange={(e) => setCalibVoltage(Number(e.target.value))} className="w-full h-2 bg-white/10 rounded appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full" />
                 </div>
                 <div>
                   <div className="flex justify-between text-xs text-gray-300 mb-1"><span>ประสิทธิภาพตัวแปลงไฟ (OBC Efficiency)</span><span className="text-fuchsia-400 font-mono font-bold">{calibOBC}%</span></div>
-                  <StyledSlider min="75" max="98" value={calibOBC} onChange={(e) => setCalibOBC(Number(e.target.value))} variant="fuchsia-sm" />
+                  <input type="range" min="75" max="98" step="1" value={calibOBC} onChange={(e) => setCalibOBC(Number(e.target.value))} className="w-full h-2 bg-white/10 rounded appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-fuchsia-500 [&::-webkit-slider-thumb]:rounded-full" />
                 </div>
                 
                 <div className="pt-3 border-t border-white/5 mt-3">
@@ -1011,7 +1011,15 @@
                   <span>แบตเตอรี่ปัจจุบัน</span>
                   <span className="text-cyan-400 font-black bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">{currentSoC}%</span>
                 </div>
-                <StyledSlider min="0" max="100" value={currentSoC} onChange={(e) => setCurrentSoC(Number(e.target.value))} variant="cyan-lg" />
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="100" 
+                  value={currentSoC} 
+                  onChange={(e) => setCurrentSoC(Number(e.target.value))} 
+                  className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(34,211,238,0.8)] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#120F24]" 
+                  style={{ background: `linear-gradient(to right, #22d3ee ${currentSoC}%, rgba(255,255,255,0.08) ${currentSoC}%)` }}
+                />
               </div>
 
               <div>
@@ -1019,7 +1027,15 @@
                   <span>เป้าหมายการชาร์จ</span>
                   <span className="text-fuchsia-400 font-black bg-fuchsia-500/10 px-2 py-0.5 rounded border border-fuchsia-500/20">{targetSoC}%</span>
                 </div>
-                <StyledSlider min="0" max="100" value={targetSoC} onChange={(e) => setTargetSoC(Number(e.target.value))} variant="fuchsia-lg" />
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="100" 
+                  value={targetSoC} 
+                  onChange={(e) => setTargetSoC(Number(e.target.value))} 
+                  className="w-full h-3 rounded-full appearance-none cursor-pointer outline-none transition-all [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:bg-fuchsia-500 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-[0_0_15px_rgba(217,70,239,0.8)] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-[#120F24]" 
+                  style={{ background: `linear-gradient(to right, #d946ef ${targetSoC}%, rgba(255,255,255,0.08) ${targetSoC}%)` }}
+                />
               </div>
             </div>
 
@@ -1049,7 +1065,16 @@
                           <button key={amp} onClick={() => setAcAmps(amp)} className={`flex-1 py-2 text-xs font-black rounded-lg border transition-all ${acAmps === amp ? 'bg-fuchsia-500/20 border-fuchsia-500 text-fuchsia-300 shadow-md' : 'bg-black/20 border-white/5 text-purple-400/60'}`}>{amp}A</button>
                         ))}
                       </div>
-                      <StyledSlider min="6" max="32" value={acAmps} onChange={(e) => setAcAmps(Number(e.target.value))} variant="fuchsia-sm" />
+                      <input 
+                        type="range" 
+                        min="6" 
+                        max="32" 
+                        step="1" 
+                        value={acAmps} 
+                        onChange={(e) => setAcAmps(Number(e.target.value))} 
+                        className="w-full h-2 bg-white/10 rounded appearance-none cursor-pointer outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-fuchsia-500 [&::-webkit-slider-thumb]:rounded-full" 
+                        style={{ background: `linear-gradient(to right, #d946ef ${((acAmps - 6) / 26) * 100}%, rgba(255,255,255,0.08) ${((acAmps - 6) / 26) * 100}%)` }}
+                      />
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -1062,7 +1087,16 @@
                           <button key={kw} onClick={() => setAcPower(kw)} className={`py-2 text-xs font-black rounded-lg border transition-all ${acPower === kw ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300' : 'bg-black/20 border-white/5 text-purple-400/60'}`}>{kw.toFixed(1)} kW</button>
                         ))}
                       </div>
-                      <StyledSlider min="1.0" max="22.0" step="0.1" value={acPower} onChange={(e) => setAcPower(Number(e.target.value))} variant="cyan-sm" />
+                      <input 
+                        type="range" 
+                        min="1.0" 
+                        max="22.0" 
+                        step="0.1" 
+                        value={acPower} 
+                        onChange={(e) => setAcPower(Number(e.target.value))} 
+                        className="w-full h-2 bg-white/10 rounded appearance-none cursor-pointer outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full" 
+                        style={{ background: `linear-gradient(to right, #22d3ee ${((acPower - 1.0) / 21.0) * 100}%, rgba(255,255,255,0.08) ${((acPower - 1.0) / 21.0) * 100}%)` }}
+                      />
                     </div>
                   )}
                 </>
@@ -1081,7 +1115,16 @@
                       120 kW - 720 kW <span className="block text-[8px] font-normal text-fuchsia-300/70 mt-0.5">(ปั๊ม ปตท./PEA *รถรับไฟจริงสูงสุด 70 kW)</span>
                     </button>
                   </div>
-                  <StyledSlider min="10" max="360" step="5" value={dcPower} onChange={(e) => setDcPower(Number(e.target.value))} variant="cyan-sm" />
+                  <input 
+                    type="range" 
+                    min="10" 
+                    max="360" 
+                    step="5" 
+                    value={dcPower} 
+                    onChange={(e) => setDcPower(Number(e.target.value))} 
+                    className="w-full h-2 bg-white/10 rounded appearance-none cursor-pointer outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-cyan-400 [&::-webkit-slider-thumb]:rounded-full" 
+                    style={{ background: `linear-gradient(to right, #22d3ee ${((dcPower - 10) / 350) * 100}%, rgba(255,255,255,0.08) ${((dcPower - 10) / 350) * 100}%)` }}
+                  />
                 </div>
               )}
             </div>
