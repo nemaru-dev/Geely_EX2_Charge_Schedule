@@ -942,12 +942,20 @@
         const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(`⚡ ถอดสายชาร์จ Geely EX2 (${targetSoC}%)`)}&dates=${timeString}/${timeString}&details=${encodeURIComponent('รถของคุณชาร์จถึงเป้าหมายที่ตั้งไว้แล้ว!')}`;
 
         // 3. ตรวจสอบอุปกรณ์เพื่อเลือกระบบเด้งปฏิทินที่ดีที่สุด
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
         
         if (isIOS) {
-          // ใช้ Data URI แทน Blob Download เพื่อบังคับให้ Safari โยนข้อมูลเข้าแอป Calendar ทันที
-          const dataUri = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(icsData);
-          window.location.href = dataUri;
+          // ท่าไม้ตายสำหรับ iOS: เข้ารหัสปฏิทินเป็น Base64 เพื่อบังคับให้ Safari เปิดหน้า Preview
+          try {
+            const base64Data = btoa(unescape(encodeURIComponent(icsData)));
+            const dataUri = `data:text/calendar;charset=utf-8;base64,${base64Data}`;
+            
+            // สั่งเปลี่ยนหน้าต่างเบราว์เซอร์ไปที่ไฟล์ปฏิทินโดยตรง
+            window.location.assign(dataUri);
+          } catch(e) {
+            // สำรองกรณีฉุกเฉิน หากเข้ารหัสพลาด ให้ใช้ Google Calendar แทน
+            window.open(googleCalUrl, '_blank');
+          }
         } else {
           window.open(googleCalUrl, '_blank');
         }
