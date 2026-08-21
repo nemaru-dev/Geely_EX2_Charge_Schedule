@@ -934,21 +934,9 @@
         const formatICSDate = (date) => date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
         const timeString = formatICSDate(alarmDate);
 
-        // 1. สร้างโครงสร้างไฟล์ .ics สำหรับ iOS (มี VALARM สั่งให้ร้องเตือนตรงเวลา)
-        const icsData = `BEGIN:VCALENDAR
-VERSION:2.0
-BEGIN:VEVENT
-DTSTART:${timeString}
-DTEND:${timeString}
-SUMMARY:⚡ ถอดสายชาร์จ Geely EX2
-DESCRIPTION:รถของคุณชาร์จถึงเป้าหมายที่ตั้งไว้ (${targetSoC}%) แล้ว!
-BEGIN:VALARM
-ACTION:DISPLAY
-DESCRIPTION:⚡ ถอดสายชาร์จ EV!
-TRIGGER:-PT0M
-END:VALARM
-END:VEVENT
-END:VCALENDAR`;
+        // 1. สร้างโครงสร้างไฟล์ .ics สำหรับ iOS 
+        // บังคับใช้ \r\n ตามมาตรฐาน RFC 5545 อย่างเคร่งครัด เพื่อให้ Apple Calendar ยอมรับไฟล์
+        const icsData = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nDTSTART:${timeString}\r\nDTEND:${timeString}\r\nSUMMARY:⚡ ถอดสายชาร์จ Geely EX2\r\nDESCRIPTION:รถของคุณชาร์จถึงเป้าหมายที่ตั้งไว้ (${targetSoC}%) แล้ว!\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:⚡ ถอดสายชาร์จ EV!\r\nTRIGGER:-PT0M\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR`;
 
         // 2. สร้าง Google Calendar Link สำหรับ Android/PC
         const googleCalUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(`⚡ ถอดสายชาร์จ Geely EX2 (${targetSoC}%)`)}&dates=${timeString}/${timeString}&details=${encodeURIComponent('รถของคุณชาร์จถึงเป้าหมายที่ตั้งไว้แล้ว!')}`;
@@ -957,14 +945,9 @@ END:VCALENDAR`;
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         
         if (isIOS) {
-          const blob = new Blob([icsData], { type: 'text/calendar;charset=utf-8' });
-          const icsUrl = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = icsUrl;
-          link.setAttribute('download', 'geely_ex2_charge_alert.ics');
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          // ใช้ Data URI แทน Blob Download เพื่อบังคับให้ Safari โยนข้อมูลเข้าแอป Calendar ทันที
+          const dataUri = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(icsData);
+          window.location.href = dataUri;
         } else {
           window.open(googleCalUrl, '_blank');
         }
